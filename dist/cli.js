@@ -396,6 +396,7 @@ var init_config2 = __esm({
       localesDir: "locales",
       localeFileName: null,
       maxKeyLength: 60,
+      addUseClientDirective: false,
       detectAlerts: true,
       detectThrows: true,
       customDetectCalls: [],
@@ -406,266 +407,308 @@ var init_config2 = __esm({
   }
 });
 
+// src/utils/fs.ts
+function readFileSafe(filePath) {
+  try {
+    return import_fs2.default.readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
+function writeFile(filePath, content) {
+  const dir = import_path2.default.dirname(filePath);
+  import_fs2.default.mkdirSync(dir, { recursive: true });
+  import_fs2.default.writeFileSync(filePath, content, "utf-8");
+}
+function exists(filePath) {
+  return import_fs2.default.existsSync(filePath);
+}
+function ensureDir(dirPath) {
+  import_fs2.default.mkdirSync(dirPath, { recursive: true });
+}
+function writeJson(filePath, data) {
+  writeFile(filePath, JSON.stringify(data, null, 2));
+}
+var import_fs2, import_path2;
+var init_fs = __esm({
+  "src/utils/fs.ts"() {
+    "use strict";
+    init_cjs_shims();
+    import_fs2 = __toESM(require("fs"));
+    import_path2 = __toESM(require("path"));
+  }
+});
+
+// src/utils/i18n-file.ts
+var i18n_file_exports = {};
+__export(i18n_file_exports, {
+  addLocaleToI18nFile: () => addLocaleToI18nFile,
+  generateInitialI18nFile: () => generateInitialI18nFile,
+  resolveI18nFilePath: () => resolveI18nFilePath
+});
+function resolveI18nFilePath(appRoot, config) {
+  return import_path3.default.join(appRoot, config.i18nFilePath ?? "src/i18n.ts");
+}
+function generateInitialI18nFile(appRoot, config) {
+  const filePath = resolveI18nFilePath(appRoot, config);
+  if (import_fs3.default.existsSync(filePath)) {
+    logger.warn(
+      `  ${config.i18nFilePath} already exists \u2014 skipping generation.
+  Delete it and re-run "rai init" if you want a fresh one.`
+    );
+    return;
+  }
+  const content = buildI18nFileContent("", [], config);
+  writeFile(filePath, content);
+  logger.success(`Generated ${config.i18nFilePath}`);
+}
+function addLocaleToI18nFile(appRoot, config, newLanguage) {
+  const filePath = resolveI18nFilePath(appRoot, config);
+  if (!import_fs3.default.existsSync(filePath)) {
+    const content2 = buildI18nFileContent(
+      config.defaultLanguage,
+      [newLanguage].filter((l) => l !== config.defaultLanguage),
+      config
+    );
+    writeFile(filePath, content2);
+    logger.success(`Generated ${config.i18nFilePath} with "${newLanguage}"`);
+    return;
+  }
+  const existingContent = import_fs3.default.readFileSync(filePath, "utf-8");
+  const existingLanguages = extractLanguagesFromI18nFile(existingContent);
+  if (existingLanguages.includes(newLanguage)) {
+    logger.dim(
+      `  ${config.i18nFilePath} already imports "${newLanguage}" \u2014 skipping`
+    );
+    return;
+  }
+  const allLanguages = [...existingLanguages, newLanguage];
+  const targetLanguages = allLanguages.filter(
+    (l) => l !== config.defaultLanguage
+  );
+  const content = buildI18nFileContent(
+    config.defaultLanguage,
+    targetLanguages,
+    config
+  );
+  writeFile(filePath, content);
+  logger.success(`Updated ${config.i18nFilePath} \u2014 added "${newLanguage}"`);
+}
+function extractLanguagesFromI18nFile(content) {
+  const importPattern = /^import\s+([a-z]{2})\s+from\s+['"][^'"]+['"]/gm;
+  const languages = [];
+  let match;
+  while ((match = importPattern.exec(content)) !== null) {
+    languages.push(match[1]);
+  }
+  return [...new Set(languages)];
+}
+function buildI18nFileContent(defaultLang, targetLanguages, config) {
+  const allLanguages = defaultLang ? [defaultLang, ...targetLanguages] : [];
+  const hasLocales = allLanguages.length > 0;
+  const i18nDir = import_path3.default.dirname(
+    import_path3.default.join("/", config.i18nFilePath ?? "src/i18n.ts")
+  );
+  function localeImportPath(lang) {
+    const localeFile = config.localeFileName ? `${config.localesDir}/${lang}/${config.localeFileName}.json` : `${config.localesDir}/${lang}.json`;
+    const localeAbsolute = import_path3.default.join("/", localeFile);
+    const relative = import_path3.default.relative(i18nDir, localeAbsolute).replace(/\\/g, "/");
+    return relative.startsWith(".") ? relative : `./${relative}`;
+  }
+  const localeImports = hasLocales ? allLanguages.map((lang) => `import ${lang} from '${localeImportPath(lang)}'`).join("\n") : "";
+  const resourcesEntries = hasLocales ? allLanguages.map((lang) => `    ${lang}: { translation: ${lang} },`).join("\n") : "";
+  const useClientDirective = config.addUseClientDirective ? `'use client'
+
+` : "";
+  const activeLang = defaultLang || "en";
+  return `${useClientDirective}import i18n from 'i18next'
+import { initReactI18next } from 'react-i18next'
+${hasLocales ? `
+${localeImports}
+` : ""}
+i18n.use(initReactI18next).init({
+  resources: {
+${resourcesEntries}
+  },
+  lng: '${activeLang}',
+  fallbackLng: '${activeLang}',
+  interpolation: {
+    escapeValue: false,
+  },
+})
+
+export default i18n
+`;
+}
+var import_fs3, import_path3;
+var init_i18n_file = __esm({
+  "src/utils/i18n-file.ts"() {
+    "use strict";
+    init_cjs_shims();
+    import_fs3 = __toESM(require("fs"));
+    import_path3 = __toESM(require("path"));
+    init_logger();
+    init_fs();
+  }
+});
+
+// src/utils/detect-project.ts
+function detectProjectProfile(appRoot) {
+  const hasSrcDir = import_fs5.default.existsSync(import_path4.default.join(appRoot, "src"));
+  const hasAppDir = import_fs5.default.existsSync(import_path4.default.join(appRoot, "app"));
+  const hasSrcAppDir = import_fs5.default.existsSync(import_path4.default.join(appRoot, "src", "app"));
+  let isExpo = false;
+  let isNext = false;
+  let isReactNative = false;
+  try {
+    const pkgPath = import_path4.default.join(appRoot, "package.json");
+    const pkg = JSON.parse(import_fs5.default.readFileSync(pkgPath, "utf-8"));
+    const allDeps = {
+      ...pkg.dependencies,
+      ...pkg.devDependencies
+    };
+    isExpo = "expo" in allDeps;
+    isNext = "next" in allDeps;
+    isReactNative = "react-native" in allDeps && !isExpo;
+  } catch {
+  }
+  const recommendedLocalesDir = hasSrcDir ? "src/locales" : "locales";
+  const recommendedI18nFilePath = hasSrcDir ? "src/i18n.ts" : hasAppDir ? "i18n.ts" : "i18n.ts";
+  const recommendedUseClientDirective = isNext;
+  return {
+    hasSrcDir,
+    hasAppDir,
+    hasSrcAppDir,
+    isExpo,
+    isNext,
+    isReactNative,
+    recommendedLocalesDir,
+    recommendedI18nFilePath,
+    recommendedUseClientDirective
+  };
+}
+var import_fs5, import_path4;
+var init_detect_project = __esm({
+  "src/utils/detect-project.ts"() {
+    "use strict";
+    init_cjs_shims();
+    import_fs5 = __toESM(require("fs"));
+    import_path4 = __toESM(require("path"));
+  }
+});
+
 // src/commands/init.ts
 var init_exports = {};
 __export(init_exports, {
   init: () => init
 });
 async function init(options) {
-  const appRoot = import_path2.default.resolve(options.path);
+  const appRoot = import_path5.default.resolve(options.path);
   const configPath = getConfigPath(appRoot);
-  if (import_fs2.default.existsSync(configPath)) {
-    logger.warn(`${CONFIG_FILENAME} already exists at ${configPath}`);
-    logger.info(
-      `  If you want to start over, delete the file and re-run "rai init".`
-    );
-    process.exit(0);
-  }
   logger.section("rai \u2014 Init");
-  const configContent = `import type { RaiConfig } from 'react-auto-i18n'
-
-/**
- * rai configuration
- *
- * Edit this file to match your project, then run:
- *   rai scan
- *
- * Full type safety is available \u2014 your editor will highlight invalid values.
- * The import above is type-only and is erased at runtime, so react-auto-i18n
- * does not need to be installed as a project dependency.
- */
-export default {
-  // \u2500\u2500 Language \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-  /**
-   * The language your app is currently written in.
-   * All extracted strings will be stored under this language.
-   *
-   * Must be a valid ISO 639-1 code.
-   * Examples: 'en', 'fr', 'es', 'de', 'ar', 'zh', 'pt', 'ja'
-   */
-  defaultLanguage: 'en',
-
-  // \u2500\u2500 Output \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-  /**
-   * Directory where locale files will be generated.
-   * Relative to your project root.
-   *
-   * The scan command will create:
-   *   <localesDir>/<defaultLanguage>.json
-   *
-   * Examples:
-   *   'locales'      \u2192 locales/en.json         (at project root)
-   *   'src/locales'  \u2192 src/locales/en.json     (inside src/)
-   *
-   * If the directory does not exist, it will be created automatically.
-   * However, its parent directory must already exist.
-   * ('src/locales' requires 'src/' to exist \u2014 it usually does in RN projects)
-   */
-  localesDir: 'src/locales',
-
-  /**
-   * Custom name for the locale file, without the .json extension.
-   *
-   * null (default):
-   *   Files are named after the language code.
-   *   locales/en.json
-   *   locales/fr.json
-   *
-   * Custom name e.g. 'translation':
-   *   A subdirectory is created per language and the file goes inside.
-   *   locales/en/translation.json
-   *   locales/fr/translation.json
-   *
-   * The second format is common in i18next projects that use namespaces
-   * or that follow the convention of one directory per language.
-   *
-   * @default null
-   * @example null         \u2192 locales/en.json
-   * @example 'translation' \u2192 locales/en/translation.json
-   */
-  localeFileName: 'translation',
-
-  // \u2500\u2500 Key generation \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-  /**
-   * Maximum length of a generated translation key.
-   *
-   * Keys are built from the file path and the string content:
-   *   auth.forgotpassword.enter_your_email_address
-   *
-   * If a key exceeds this limit, the string portion is trimmed.
-   * Minimum: 10  Maximum: 200
-   *
-   * @default 60
-   */
-  maxKeyLength: 60,
-
-  // \u2500\u2500 Detection \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-  /**
-   * Extract strings passed to Alert.alert().
-   *
-   * Alert.alert('Confirm', 'Are you sure you want to delete this?')
-   *              \u2191 title   \u2191 message \u2014 both are extracted when true
-   *
-   * @default true
-   */
-  detectAlerts: true,
-
-  /**
-   * Extract strings inside throw statements.
-   *
-   * throw new Error('Failed to save. Please try again.')
-   *                  \u2191 extracted when true
-   *
-   * Useful for catching error messages written in try/catch blocks
-   * that bubble up and get shown to the user.
-   *
-   * @default true
-   */
-  detectThrows: true,
-
-  /**
-   * Additional function call patterns to extract string arguments from.
-   *
-   * Use this for toast libraries, custom error handlers, or any function
-   * that receives user-visible strings as arguments.
-   *
-   * Format: 'functionName' for global functions
-   *         'object.method' for method calls
-   *
-   * @default []
-   * @example ['toast.show', 'setError', 'showMessage', 'Snackbar.show']
-   */
-  customDetectCalls: [],
-
-  // \u2500\u2500 Scanner \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-  /**
-   * Glob patterns to exclude from scanning.
-   *
-   * These are always excluded automatically and do not need to be listed:
-   *   node_modules, dist, build, android, ios, .expo
-   *
-   * Use this for mock files, fixtures, generated code, or dev utilities
-   * that contain strings you do not want translated.
-   *
-   * Patterns are relative to your project root.
-   *
-   * @default []
-   * @example ['src/mocks/**', 'src/fixtures/**', 'src/dev/**']
-   */
-  exclude: [],
-
-  // \u2500\u2500 Target languages \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-  /**
-   * Languages to generate translation files for, in addition to defaultLanguage.
-   *
-   * Run \`rai locales generate\` after \`rai scan\` to create these files.
-   * Each file starts as a copy of the default language file, ready to
-   * hand off for manual translation (or to paste into an LLM/translator).
-   *
-   * Must be valid ISO 639-1 codes.
-   *
-   * @default []
-   * @example ['fr', 'es', 'de']
-   */
-  targetLanguages: [],
-
-  // \u2500\u2500 i18n entry file \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-
-  /**
-   * Path to your i18n setup file (the one with \`i18n.use(initReactI18next).init(...)\`).
-   *
-   * \`rai locales generate --with-imports\` edits this file to import and
-   * register newly generated locale files. If the file doesn't exist yet,
-   * import wiring is skipped with a warning.
-   *
-   * @default 'src/i18n.ts'
-   */
-  i18nFilePath: 'src/i18n.ts',
-
-} satisfies Partial<RaiConfig>
-`;
-  import_fs2.default.writeFileSync(configPath, configContent, "utf-8");
-  logger.success(`Created ${CONFIG_FILENAME}`);
-  logger.section("Next steps");
+  const profile = detectProjectProfile(appRoot);
+  logger.section("Detected project profile");
+  const projectType = profile.isExpo ? "Expo" : profile.isNext ? "Next.js" : profile.isReactNative ? "React Native" : "React";
+  logger.info(`  Project type : ${projectType}`);
+  logger.info(`  src/ exists  : ${profile.hasSrcDir ? "yes" : "no"}`);
+  logger.info(`  app/ exists  : ${profile.hasAppDir ? "yes" : "no"}`);
+  logger.info(`  Locales dir  : ${profile.recommendedLocalesDir}`);
+  logger.info(`  i18n file    : ${profile.recommendedI18nFilePath}`);
+  if (profile.recommendedUseClientDirective) {
+    logger.info(`  use client   : enabled (Next.js detected)`);
+  }
+  logger.section("Generating config file...");
+  if (import_fs6.default.existsSync(configPath)) {
+    logger.warn(
+      `${CONFIG_FILENAME} already exists \u2014 skipping.
+  Delete it and re-run "rai init" to regenerate with detected defaults.`
+    );
+  } else {
+    const configContent = buildConfigContent(profile);
+    import_fs6.default.writeFileSync(configPath, configContent, "utf-8");
+    logger.success(`Created ${CONFIG_FILENAME}`);
+  }
+  logger.section("Generating i18n config file...");
+  const config = await loadConfig(appRoot) ?? {
+    ...DEFAULT_CONFIG,
+    localesDir: profile.recommendedLocalesDir,
+    i18nFilePath: profile.recommendedI18nFilePath,
+    addUseClientDirective: profile.recommendedUseClientDirective
+  };
+  generateInitialI18nFile(appRoot, config);
+  const i18nFilePath = config.i18nFilePath ?? profile.recommendedI18nFilePath;
+  const entryImportPath = resolveEntryImportPath(appRoot, i18nFilePath);
+  logger.section("Setup complete");
   logger.info(`
-  1. Open ${CONFIG_FILENAME} and review the settings.
+  Two files were created:
 
-     Key things to check:
-       \u2022 "defaultLanguage" \u2014 make sure this matches your app's current language
-       \u2022 "localesDir"      \u2014 where locale files will be written
-       \u2022 "localeFileName"  \u2014 custom name for the translation files
-       \u2022 "targetLanguages" \u2014 add languages you want to support (e.g. ['fr', 'es', 'de'])
-       \u2022 "i18nFilePath"    \u2014 path to your i18n setup file (default: src/i18n.ts)
-       \u2022 "detectAlerts"    \u2014 set to false if you don't use Alert.alert()
-       \u2022 "detectThrows"    \u2014 set to false if your errors aren't user-facing
-       \u2022 "customDetectCalls" \u2014 add any toast or error handler functions you use
-       \u2022 "exclude"         \u2014 add any folders you want the scanner to skip
+    ${import_chalk2.default.cyan(CONFIG_FILENAME)}
+      Hover any field for documentation.
+      Press Ctrl+Space to see all available options.
 
-  2. When ready, run:
-       rai scan
+    ${import_chalk2.default.cyan(i18nFilePath)}
+      Import this in your app entry point before any component renders:
+      ${import_chalk2.default.gray("// the import should be as high as possible")}
+      ${import_chalk2.default.cyan(`import '${entryImportPath}'`)}
 
-     This will scan your entire app, extract all translatable strings,
-     and generate your locale file at <localesDir>/<defaultLanguage>.json
-
-  3. To generate translation files for target languages:
-       rai locales generate
-
-     This creates copies of the default locale file for each language in targetLanguages.
-     Each file will have the same keys as your default locale, ready for translation.
-
-  4. To automatically wire imports into your i18n file:
-       rai locales generate --with-imports
-
-     This adds import statements and registers the locale files in your i18n setup.
+  Next steps:
+    1. Review ${CONFIG_FILENAME} and adjust settings if needed
+       ${import_chalk2.default.gray(`(defaultLanguage is always 'en' \u2014 update if your app uses a different language)`)}
+    2. Commit the generated files
+    3. Run:
+         ${import_chalk2.default.cyan("rai scan")}
   `);
 }
-var import_path2, import_fs2;
+function buildConfigContent(profile) {
+  return `import { defineRaiConfig } from 'react-auto-i18n'
+
+export default defineRaiConfig({
+  defaultLanguage: 'en',
+  localesDir: '${profile.recommendedLocalesDir}',
+  localeFileName: null,
+  maxKeyLength: 60,
+  detectAlerts: true,
+  detectThrows: true,
+  customDetectCalls: [],
+  exclude: [],
+  targetLanguages: [],
+  i18nFilePath: '${profile.recommendedI18nFilePath}',
+  addUseClientDirective: ${profile.recommendedUseClientDirective},
+})
+`;
+}
+function resolveEntryImportPath(appRoot, i18nFilePath) {
+  const candidates = [
+    "app/_layout.tsx",
+    "app/_layout.ts",
+    "src/app/_layout.tsx",
+    "src/app/_layout.ts",
+    "App.tsx",
+    "App.ts",
+    "src/App.tsx",
+    "src/App.ts"
+  ];
+  const i18nAbs = import_path5.default.join(appRoot, i18nFilePath);
+  for (const candidate of candidates) {
+    const candidateAbs = import_path5.default.join(appRoot, candidate);
+    if (import_fs6.default.existsSync(candidateAbs)) {
+      return import_path5.default.relative(import_path5.default.dirname(candidateAbs), i18nAbs).replace(/\\/g, "/").replace(/\.ts$/, "").replace(/^([^.])/, "./$1");
+    }
+  }
+  return `./${i18nFilePath.replace(/\.ts$/, "")}`;
+}
+var import_path5, import_fs6, import_chalk2;
 var init_init = __esm({
   "src/commands/init.ts"() {
     "use strict";
     init_cjs_shims();
-    import_path2 = __toESM(require("path"));
-    import_fs2 = __toESM(require("fs"));
+    import_path5 = __toESM(require("path"));
+    import_fs6 = __toESM(require("fs"));
+    import_chalk2 = __toESM(require("chalk"));
     init_logger();
     init_config2();
-  }
-});
-
-// src/utils/fs.ts
-function readFileSafe(filePath) {
-  try {
-    return import_fs3.default.readFileSync(filePath, "utf-8");
-  } catch {
-    return null;
-  }
-}
-function writeFile(filePath, content) {
-  const dir = import_path3.default.dirname(filePath);
-  import_fs3.default.mkdirSync(dir, { recursive: true });
-  import_fs3.default.writeFileSync(filePath, content, "utf-8");
-}
-function exists(filePath) {
-  return import_fs3.default.existsSync(filePath);
-}
-function ensureDir(dirPath) {
-  import_fs3.default.mkdirSync(dirPath, { recursive: true });
-}
-function writeJson(filePath, data) {
-  writeFile(filePath, JSON.stringify(data, null, 2));
-}
-var import_fs3, import_path3;
-var init_fs = __esm({
-  "src/utils/fs.ts"() {
-    "use strict";
-    init_cjs_shims();
-    import_fs3 = __toESM(require("fs"));
-    import_path3 = __toESM(require("path"));
+    init_i18n_file();
+    init_detect_project();
   }
 });
 
@@ -719,6 +762,58 @@ function isExtractable(value) {
   if (isCssClassString(trimmed)) return false;
   return true;
 }
+function isLikelyUiCopy(value) {
+  const trimmed = value.trim();
+  if (!isExtractable(trimmed)) return false;
+  if (!/\s/.test(trimmed)) {
+    const UI_SINGLE_WORDS = /* @__PURE__ */ new Set([
+      "submit",
+      "cancel",
+      "confirm",
+      "delete",
+      "save",
+      "close",
+      "continue",
+      "back",
+      "next",
+      "done",
+      "ok",
+      "yes",
+      "no",
+      "loading",
+      "error",
+      "success",
+      "retry",
+      "search"
+    ]);
+    if (!UI_SINGLE_WORDS.has(trimmed.toLowerCase())) {
+      return false;
+    }
+  }
+  const TECHNICAL = /* @__PURE__ */ new Set([
+    "light",
+    "dark",
+    "system",
+    "auto",
+    "pending",
+    "completed",
+    "failed",
+    "active",
+    "inactive",
+    "credit",
+    "debit",
+    "row",
+    "column",
+    "center",
+    "left",
+    "right"
+  ]);
+  if (TECHNICAL.has(trimmed.toLowerCase())) return false;
+  return true;
+}
+function templateHasOnlyIdentifierExpressions(node) {
+  return node.expressions.every((expr) => t.isIdentifier(expr));
+}
 function isCssClassString(value) {
   const tokens = value.trim().split(/\s+/);
   if (tokens.length < 2) return false;
@@ -752,10 +847,11 @@ function processTemplateLiteral(node) {
   });
   return { text, params };
 }
-function extractFromExpression(expr, results, namespace, filePath, maxKeyLen, sourceType) {
+function extractFromExpression(expr, results, namespace, filePath, maxKeyLen, sourceType, strictUiCopy = false) {
   if (!expr || t.isJSXEmptyExpression(expr)) return;
+  const passes = (value) => strictUiCopy ? isLikelyUiCopy(value) : isExtractable(value);
   if (t.isStringLiteral(expr)) {
-    if (!isExtractable(expr.value)) return;
+    if (!passes(expr.value)) return;
     const { key, fullKey } = buildFullKey(namespace, expr.value, maxKeyLen);
     results.push({
       filePath,
@@ -770,19 +866,22 @@ function extractFromExpression(expr, results, namespace, filePath, maxKeyLen, so
     return;
   }
   if (t.isTemplateLiteral(expr)) {
-    const { text, params } = processTemplateLiteral(expr);
-    if (!isExtractable(text)) return;
-    const { key, fullKey } = buildFullKey(namespace, text, maxKeyLen);
-    results.push({
-      filePath,
-      namespace,
-      key,
-      fullKey,
-      originalText: text,
-      translationValue: text,
-      params,
-      sourceType
-    });
+    if (templateHasOnlyIdentifierExpressions(expr)) {
+      const { text, params } = processTemplateLiteral(expr);
+      if (!isExtractable(text)) return;
+      const { key, fullKey } = buildFullKey(namespace, text, maxKeyLen);
+      results.push({
+        filePath,
+        namespace,
+        key,
+        fullKey,
+        originalText: text,
+        translationValue: text,
+        params,
+        sourceType
+      });
+      return;
+    }
     for (const subExpr of expr.expressions) {
       extractFromExpression(
         subExpr,
@@ -802,7 +901,8 @@ function extractFromExpression(expr, results, namespace, filePath, maxKeyLen, so
       namespace,
       filePath,
       maxKeyLen,
-      sourceType
+      sourceType,
+      strictUiCopy
     );
     extractFromExpression(
       expr.alternate,
@@ -810,7 +910,8 @@ function extractFromExpression(expr, results, namespace, filePath, maxKeyLen, so
       namespace,
       filePath,
       maxKeyLen,
-      sourceType
+      sourceType,
+      strictUiCopy
     );
     return;
   }
@@ -821,7 +922,8 @@ function extractFromExpression(expr, results, namespace, filePath, maxKeyLen, so
       namespace,
       filePath,
       maxKeyLen,
-      sourceType
+      sourceType,
+      strictUiCopy
     );
     extractFromExpression(
       expr.right,
@@ -829,9 +931,31 @@ function extractFromExpression(expr, results, namespace, filePath, maxKeyLen, so
       namespace,
       filePath,
       maxKeyLen,
-      sourceType
+      sourceType,
+      strictUiCopy
     );
     return;
+  }
+}
+function extractAlertButtonTexts(buttonsArg, results, namespace, filePath, maxKeyLen) {
+  if (!t.isArrayExpression(buttonsArg)) return;
+  for (const element of buttonsArg.elements) {
+    if (!element || !t.isObjectExpression(element)) continue;
+    for (const prop of element.properties) {
+      if (!t.isObjectProperty(prop) && !t.isProperty(prop)) continue;
+      const key = prop.key;
+      const propName = t.isIdentifier(key) ? key.name : t.isStringLiteral(key) ? key.value : null;
+      if (propName !== "text") continue;
+      if (prop.computed) continue;
+      extractFromExpression(
+        prop.value,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        "alert"
+      );
+    }
   }
 }
 function getCalleeName(node) {
@@ -864,10 +988,10 @@ function extractStringArgs(args, results, namespace, filePath, maxKeyLen, source
 function extractStringsFromFile(filePath, appRoot, config) {
   const code = readFileSafe(filePath);
   if (!code) return [];
-  const relativeWithoutExt = import_path4.default.relative(appRoot, filePath).replace(/\\/g, "/").replace(/\.[^/.]+$/, "");
+  const relativeWithoutExt = import_path6.default.relative(appRoot, filePath).replace(/\\/g, "/").replace(/\.[^/.]+$/, "");
   const namespace = buildNamespace(relativeWithoutExt);
   logger.debug(
-    `Parsing: ${import_path4.default.relative(appRoot, filePath)} \u2192 namespace: "${namespace}"`
+    `Parsing: ${import_path6.default.relative(appRoot, filePath)} \u2192 namespace: "${namespace}"`
   );
   let ast;
   try {
@@ -877,7 +1001,7 @@ function extractStringsFromFile(filePath, appRoot, config) {
     });
   } catch (err) {
     logger.warn(
-      `  Could not parse ${import_path4.default.relative(appRoot, filePath)} \u2014 skipping`
+      `  Could not parse ${import_path6.default.relative(appRoot, filePath)} \u2014 skipping`
     );
     logger.debug(String(err));
     return [];
@@ -969,14 +1093,28 @@ function extractStringsFromFile(filePath, appRoot, config) {
       const calleeName = getCalleeName(nodePath.node);
       if (!calleeName) return;
       if (config.detectAlerts && calleeName === "Alert.alert") {
-        extractStringArgs(
-          nodePath.node.arguments,
-          results,
-          namespace,
-          filePath,
-          maxKeyLen,
-          "alert"
-        );
+        const args = nodePath.node.arguments;
+        for (let i = 0; i < Math.min(args.length, 2); i++) {
+          const arg = args[i];
+          if (!arg || arg.type === "SpreadElement") continue;
+          extractFromExpression(
+            arg,
+            results,
+            namespace,
+            filePath,
+            maxKeyLen,
+            "alert"
+          );
+        }
+        if (args.length >= 3) {
+          extractAlertButtonTexts(
+            args[2],
+            results,
+            namespace,
+            filePath,
+            maxKeyLen
+          );
+        }
         return;
       }
       if (customCallPatterns.has(calleeName)) {
@@ -1029,10 +1167,23 @@ function extractStringsFromFile(filePath, appRoot, config) {
           sourceType: "throw"
         });
       }
+    },
+    ReturnStatement(nodePath) {
+      extractFromExpression(
+        nodePath.node.argument,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        "return",
+        // or a new sourceType e.g. "return"
+        true
+        // ← strictUiCopy
+      );
     }
   });
   logger.debug(
-    `  Found ${results.length} string(s) in ${import_path4.default.relative(appRoot, filePath)}`
+    `  Found ${results.length} string(s) in ${import_path6.default.relative(appRoot, filePath)}`
   );
   return results;
 }
@@ -1043,13 +1194,13 @@ async function scanProject(appRoot, config) {
     ignore: [...HARD_EXCLUDED_DIRS, ...config.exclude]
   });
   const ig = (0, import_ignore.default)();
-  const gitignorePath = import_path4.default.join(appRoot, ".gitignore");
-  if (import_fs4.default.existsSync(gitignorePath)) {
-    ig.add(import_fs4.default.readFileSync(gitignorePath, "utf-8"));
+  const gitignorePath = import_path6.default.join(appRoot, ".gitignore");
+  if (import_fs7.default.existsSync(gitignorePath)) {
+    ig.add(import_fs7.default.readFileSync(gitignorePath, "utf-8"));
     logger.debug("Loaded .gitignore rules");
   }
   const filteredFiles = files.filter((file) => {
-    const rel = import_path4.default.relative(appRoot, file).replace(/\\/g, "/");
+    const rel = import_path6.default.relative(appRoot, file).replace(/\\/g, "/");
     return !ig.ignores(rel);
   });
   logger.debug(
@@ -1063,7 +1214,7 @@ async function scanProject(appRoot, config) {
     if (found.length > 0) {
       filesWithStrings++;
       logger.dim(
-        `  \u2713 ${import_path4.default.relative(appRoot, file)} \u2192 ${found.length} string(s)`
+        `  \u2713 ${import_path6.default.relative(appRoot, file)} \u2192 ${found.length} string(s)`
       );
       allStrings.push(...found);
     }
@@ -1074,7 +1225,7 @@ async function scanProject(appRoot, config) {
   );
   return allStrings;
 }
-var parser, import_traverse, t, import_glob, import_ignore, import_fs4, import_path4, TRANSLATABLE_PROP_NAMES, NON_TRANSLATABLE_PROP_NAMES, HARD_EXCLUDED_DIRS;
+var parser, import_traverse, t, import_glob, import_ignore, import_fs7, import_path6, TRANSLATABLE_PROP_NAMES, NON_TRANSLATABLE_PROP_NAMES, HARD_EXCLUDED_DIRS;
 var init_scanner = __esm({
   "src/core/scanner.ts"() {
     "use strict";
@@ -1084,8 +1235,8 @@ var init_scanner = __esm({
     t = __toESM(require("@babel/types"));
     import_glob = require("glob");
     import_ignore = __toESM(require("ignore"));
-    import_fs4 = __toESM(require("fs"));
-    import_path4 = __toESM(require("path"));
+    import_fs7 = __toESM(require("fs"));
+    import_path6 = __toESM(require("path"));
     init_fs();
     init_logger();
     init_normalize();
@@ -1144,9 +1295,9 @@ var init_scanner = __esm({
 // src/core/scaffolder.ts
 function resolveLocaleFilePath(localesDir, lang, localeFileName) {
   if (localeFileName) {
-    return import_path5.default.join(localesDir, lang, `${localeFileName}.json`);
+    return import_path7.default.join(localesDir, lang, `${localeFileName}.json`);
   }
-  return import_path5.default.join(localesDir, `${lang}.json`);
+  return import_path7.default.join(localesDir, `${lang}.json`);
 }
 async function generateLocaleFile(strings, lang, localesDir, localeFileName) {
   ensureDir(localesDir);
@@ -1164,20 +1315,20 @@ async function generateLocaleFile(strings, lang, localesDir, localeFileName) {
 function readLocaleFile(lang, localesDir, localeFileName) {
   const filePath = resolveLocaleFilePath(localesDir, lang, localeFileName);
   try {
-    const fs10 = require("fs");
-    if (!fs10.existsSync(filePath)) return {};
-    return JSON.parse(fs10.readFileSync(filePath, "utf-8"));
+    const fs11 = require("fs");
+    if (!fs11.existsSync(filePath)) return {};
+    return JSON.parse(fs11.readFileSync(filePath, "utf-8"));
   } catch {
     logger.warn(`Could not read locale file: ${filePath}`);
     return {};
   }
 }
-var import_path5;
+var import_path7;
 var init_scaffolder = __esm({
   "src/core/scaffolder.ts"() {
     "use strict";
     init_cjs_shims();
-    import_path5 = __toESM(require("path"));
+    import_path7 = __toESM(require("path"));
     init_fs();
     init_logger();
   }
@@ -1193,49 +1344,13 @@ async function confirm(message, defaultVal = true) {
     process.exit(0);
   }
 }
-function detectPackageManager(appRoot) {
-  if (import_fs7.default.existsSync(import_path6.default.join(appRoot, "pnpm-lock.yaml"))) return "pnpm";
-  if (import_fs7.default.existsSync(import_path6.default.join(appRoot, "yarn.lock"))) return "yarn";
-  return "npm";
-}
-function isExpoProject(appRoot) {
-  try {
-    const pkgPath = import_path6.default.join(appRoot, "package.json");
-    const pkg = JSON.parse(import_fs7.default.readFileSync(pkgPath, "utf-8"));
-    return !!(pkg.dependencies?.expo || pkg.devDependencies?.expo);
-  } catch {
-    return false;
-  }
-}
-function isPackageInstalled(packageName, appRoot) {
-  try {
-    const pkgPath = import_path6.default.join(appRoot, "package.json");
-    const pkg = JSON.parse(import_fs7.default.readFileSync(pkgPath, "utf-8"));
-    return !!(pkg.dependencies?.[packageName] || pkg.devDependencies?.[packageName]);
-  } catch {
-    return false;
-  }
-}
-function buildInstallCommand(packages, packageManager, expo) {
-  if (expo) {
-    return `npx expo install ${packages.join(" ")}`;
-  }
-  const commands = {
-    npm: `npm install ${packages.join(" ")}`,
-    yarn: `yarn add ${packages.join(" ")}`,
-    pnpm: `pnpm add ${packages.join(" ")}`
-  };
-  return commands[packageManager];
-}
-var import_prompts, import_fs7, import_path6;
+var import_prompts;
 var init_prompt = __esm({
   "src/utils/prompt.ts"() {
     "use strict";
     init_cjs_shims();
     import_prompts = require("@inquirer/prompts");
     init_logger();
-    import_fs7 = __toESM(require("fs"));
-    import_path6 = __toESM(require("path"));
   }
 });
 
@@ -1245,10 +1360,10 @@ __export(scan_exports, {
   scan: () => scan
 });
 async function scan(options) {
-  const appRoot = import_path7.default.resolve(options.path);
+  const appRoot = import_path8.default.resolve(options.path);
   const isDryRun = options.dryRun ?? false;
   const config = await requireConfig(appRoot);
-  const localesDir = import_path7.default.join(appRoot, config.localesDir);
+  const localesDir = import_path8.default.join(appRoot, config.localesDir);
   const dirError = validateLocalesDir(config.localesDir, appRoot);
   if (dirError) {
     logger.error(`Invalid "localesDir" in your config:
@@ -1312,13 +1427,16 @@ async function scan(options) {
     config.localeFileName
   );
   logger.success(
-    `Generated ${import_path7.default.relative(appRoot, filePath)} with ${keyCount} keys`
+    `Generated ${import_path8.default.relative(appRoot, filePath)} with ${keyCount} keys`
   );
+  const { addLocaleToI18nFile: addLocaleToI18nFile2 } = await Promise.resolve().then(() => (init_i18n_file(), i18n_file_exports));
+  addLocaleToI18nFile2(appRoot, config, config.defaultLanguage);
   printNextSteps(
     appRoot,
     config.localesDir,
     config.defaultLanguage,
-    config.localeFileName
+    config.localeFileName,
+    config.i18nFilePath ?? "src/i18n.ts"
   );
 }
 function printPreviewTable(strings) {
@@ -1336,28 +1454,25 @@ function printPreviewTable(strings) {
   for (const [namespace, items] of namespaces) {
     logger.newline();
     logger.info(
-      `  ${import_chalk2.default.bold(namespace)} ` + import_chalk2.default.gray(`(${items.length} string${items.length === 1 ? "" : "s"})`)
+      `  ${import_chalk3.default.bold(namespace)} ` + import_chalk3.default.gray(`(${items.length} string${items.length === 1 ? "" : "s"})`)
     );
     for (const item of items) {
-      const keyPart = import_chalk2.default.cyan(item.fullKey.padEnd(50));
+      const keyPart = import_chalk3.default.cyan(item.fullKey.padEnd(50));
       const preview = item.translationValue.substring(0, 40);
       const ellipsis = item.translationValue.length > 40 ? "\u2026" : "";
-      const valuePart = import_chalk2.default.gray(`"${preview}${ellipsis}"`);
-      const paramsPart = item.params.length > 0 ? import_chalk2.default.yellow(` [params: ${item.params.join(", ")}]`) : "";
+      const valuePart = import_chalk3.default.gray(`"${preview}${ellipsis}"`);
+      const paramsPart = item.params.length > 0 ? import_chalk3.default.yellow(` [params: ${item.params.join(", ")}]`) : "";
       logger.info(`    ${keyPart} ${valuePart}${paramsPart}`);
     }
   }
   logger.newline();
   logger.info(
-    `  ${import_chalk2.default.bold(String(strings.length))} total string(s) across ${import_chalk2.default.bold(String(namespaces.length))} namespace(s)`
+    `  ${import_chalk3.default.bold(String(strings.length))} total string(s) across ${import_chalk3.default.bold(String(namespaces.length))} namespace(s)`
   );
 }
-function printNextSteps(appRoot, localesDir, defaultLang, localeFileName) {
+function printNextSteps(appRoot, localesDir, defaultLang, localeFileName, i18nFilePath) {
   logger.section("Next steps");
   const localeOutputPath = localeFileName ? `${localesDir}/${defaultLang}/${localeFileName}.json` : `${localesDir}/${defaultLang}.json`;
-  const i18nFileDir = import_path7.default.join(appRoot, "src");
-  const localeAbsPath = localeFileName ? import_path7.default.join(appRoot, localesDir, defaultLang, `${localeFileName}.json`) : import_path7.default.join(appRoot, localesDir, `${defaultLang}.json`);
-  const localeImportPath = import_path7.default.relative(i18nFileDir, localeAbsPath).replace(/\\/g, "/").replace(/^([^.])/, "./$1");
   const entryPointCandidates = [
     "app/_layout.tsx",
     "app/_layout.ts",
@@ -1369,77 +1484,46 @@ function printNextSteps(appRoot, localesDir, defaultLang, localeFileName) {
     "src/App.ts"
   ];
   let entryPointFile = "your app entry point";
-  let i18nImportPath = "./src/i18n";
-  const i18nAbsPath = import_path7.default.join(appRoot, "src", "i18n.ts");
+  let i18nImportPath = `./${i18nFilePath.replace(/\.ts$/, "")}`;
+  const i18nAbsPath = import_path8.default.join(appRoot, i18nFilePath);
   for (const candidate of entryPointCandidates) {
-    const candidateAbsPath = import_path7.default.join(appRoot, candidate);
-    if (import_fs8.default.existsSync(candidateAbsPath)) {
+    const candidateAbsPath = import_path8.default.join(appRoot, candidate);
+    if (import_fs10.default.existsSync(candidateAbsPath)) {
       entryPointFile = candidate;
-      const entryDir = import_path7.default.dirname(candidateAbsPath);
-      const rel = import_path7.default.relative(entryDir, i18nAbsPath).replace(/\\/g, "/").replace(/\.ts$/, "").replace(/^([^.])/, "./$1");
-      i18nImportPath = rel;
+      const entryDir = import_path8.default.dirname(candidateAbsPath);
+      i18nImportPath = import_path8.default.relative(entryDir, i18nAbsPath).replace(/\\/g, "/").replace(/\.ts$/, "").replace(/^([^.])/, "./$1");
       break;
     }
   }
-  const missing = ["i18next", "react-i18next"].filter(
-    (pkg) => !isPackageInstalled(pkg, appRoot)
-  );
-  const pm = detectPackageManager(appRoot);
-  const isExpo = isExpoProject(appRoot);
-  let stepNum = 1;
-  if (missing.length > 0) {
-    const installCmd = buildInstallCommand(missing, pm, isExpo);
-    logger.info(`
-  ${stepNum++}. Install required dependencies:
-       ${import_chalk2.default.cyan(installCmd)}`);
-  }
   logger.info(`
-  ${stepNum++}. Create src/i18n.ts in your project:
+  Your locale file has been generated and ${i18nFilePath} has been updated.
 
-${import_chalk2.default.cyan(`     import i18n from 'i18next'
-     import { initReactI18next } from 'react-i18next'
-     import ${defaultLang} from '${localeImportPath}'
+  1. Make sure ${i18nFilePath} is imported in your entry point (${entryPointFile}):
+       ${import_chalk3.default.cyan(`import '${i18nImportPath}'`)}
+       ${import_chalk3.default.gray("This import should be as high as possible in the file.")}
 
-     i18n.use(initReactI18next).init({
-       resources: {
-         ${defaultLang}: { translation: ${defaultLang} },
-       },
-       lng: '${defaultLang}',
-       fallbackLng: '${defaultLang}',
-       interpolation: {
-         escapeValue: false,
-       },
-     })
+  2. Review ${localeOutputPath}, then commit:
+       ${import_chalk3.default.cyan(`git add .`)}
+       ${import_chalk3.default.cyan(`git commit -m "chore: add i18n locale file"`)}
 
-     export default i18n`)}
-
-  ${stepNum++}. Import it in your app entry point (${entryPointFile}):
-       ${import_chalk2.default.cyan(`import '${i18nImportPath}'`)}
-
-  ${stepNum++}. Review ${localeOutputPath}, then commit:
-       ${import_chalk2.default.cyan(`git add .
-git commit -m "chore: add i18n locale file"`)}
-
-  ${stepNum++}. Then run:
-       ${import_chalk2.default.cyan(`rai replace`)}
-
-       This will rewrite your source files to use t() calls automatically.
+  3. Then run:
+       ${import_chalk3.default.cyan("rai replace")}
   `);
 }
-var import_path7, import_chalk2, import_ora, import_fs8;
+var import_path8, import_chalk3, import_ora, import_fs10;
 var init_scan = __esm({
   "src/commands/scan.ts"() {
     "use strict";
     init_cjs_shims();
-    import_path7 = __toESM(require("path"));
-    import_chalk2 = __toESM(require("chalk"));
+    import_path8 = __toESM(require("path"));
+    import_chalk3 = __toESM(require("chalk"));
     import_ora = __toESM(require("ora"));
     init_logger();
     init_config2();
     init_scanner();
     init_scaffolder();
     init_prompt();
-    import_fs8 = __toESM(require("fs"));
+    import_fs10 = __toESM(require("fs"));
   }
 });
 
@@ -1872,13 +1956,13 @@ function __disposeResources(env) {
   }
   return next();
 }
-function __rewriteRelativeImportExtension(path15, preserveJsx) {
-  if (typeof path15 === "string" && /^\.\.?\//.test(path15)) {
-    return path15.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
+function __rewriteRelativeImportExtension(path16, preserveJsx) {
+  if (typeof path16 === "string" && /^\.\.?\//.test(path16)) {
+    return path16.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
       return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : d + ext + "." + cm.toLowerCase() + "js";
     });
   }
-  return path15;
+  return path16;
 }
 var extendStatics, __assign, __createBinding, __setModuleDefault, ownKeys, _SuppressedError, tslib_es6_default;
 var init_tslib_es6 = __esm({
@@ -2783,16 +2867,16 @@ var require_path = __commonJS({
         this.__childCache = null;
       };
       var Pp = Path.prototype;
-      function getChildCache(path15) {
-        return path15.__childCache || (path15.__childCache = /* @__PURE__ */ Object.create(null));
+      function getChildCache(path16) {
+        return path16.__childCache || (path16.__childCache = /* @__PURE__ */ Object.create(null));
       }
-      function getChildPath(path15, name) {
-        var cache = getChildCache(path15);
-        var actualChildValue = path15.getValueProperty(name);
+      function getChildPath(path16, name) {
+        var cache = getChildCache(path16);
+        var actualChildValue = path16.getValueProperty(name);
         var childPath = cache[name];
         if (!hasOwn.call(cache, name) || // Ensure consistency between cache and reality.
         childPath.value !== actualChildValue) {
-          childPath = cache[name] = new path15.constructor(actualChildValue, path15, name);
+          childPath = cache[name] = new path16.constructor(actualChildValue, path16, name);
         }
         return childPath;
       }
@@ -2804,12 +2888,12 @@ var require_path = __commonJS({
         for (var _i = 0; _i < arguments.length; _i++) {
           names[_i] = arguments[_i];
         }
-        var path15 = this;
+        var path16 = this;
         var count = names.length;
         for (var i = 0; i < count; ++i) {
-          path15 = getChildPath(path15, names[i]);
+          path16 = getChildPath(path16, names[i]);
         }
-        return path15;
+        return path16;
       };
       Pp.each = function each(callback, context) {
         var childPaths = [];
@@ -2845,12 +2929,12 @@ var require_path = __commonJS({
       };
       function emptyMoves() {
       }
-      function getMoves(path15, offset, start, end) {
-        isArray.assert(path15.value);
+      function getMoves(path16, offset, start, end) {
+        isArray.assert(path16.value);
         if (offset === 0) {
           return emptyMoves;
         }
-        var length = path15.value.length;
+        var length = path16.value.length;
         if (length < 1) {
           return emptyMoves;
         }
@@ -2868,10 +2952,10 @@ var require_path = __commonJS({
         isNumber.assert(start);
         isNumber.assert(end);
         var moves = /* @__PURE__ */ Object.create(null);
-        var cache = getChildCache(path15);
+        var cache = getChildCache(path16);
         for (var i = start; i < end; ++i) {
-          if (hasOwn.call(path15.value, i)) {
-            var childPath = path15.get(i);
+          if (hasOwn.call(path16.value, i)) {
+            var childPath = path16.get(i);
             if (childPath.name !== i) {
               throw new Error("");
             }
@@ -2889,7 +2973,7 @@ var require_path = __commonJS({
               throw new Error("");
             }
             cache[newIndex2] = childPath2;
-            path15.value[newIndex2] = childPath2.value;
+            path16.value[newIndex2] = childPath2.value;
           }
         };
       }
@@ -2964,34 +3048,34 @@ var require_path = __commonJS({
         }
         return pp.insertAt.apply(pp, insertAtArgs);
       };
-      function repairRelationshipWithParent(path15) {
-        if (!(path15 instanceof Path)) {
+      function repairRelationshipWithParent(path16) {
+        if (!(path16 instanceof Path)) {
           throw new Error("");
         }
-        var pp = path15.parentPath;
+        var pp = path16.parentPath;
         if (!pp) {
-          return path15;
+          return path16;
         }
         var parentValue = pp.value;
         var parentCache = getChildCache(pp);
-        if (parentValue[path15.name] === path15.value) {
-          parentCache[path15.name] = path15;
+        if (parentValue[path16.name] === path16.value) {
+          parentCache[path16.name] = path16;
         } else if (isArray.check(parentValue)) {
-          var i = parentValue.indexOf(path15.value);
+          var i = parentValue.indexOf(path16.value);
           if (i >= 0) {
-            parentCache[path15.name = i] = path15;
+            parentCache[path16.name = i] = path16;
           }
         } else {
-          parentValue[path15.name] = path15.value;
-          parentCache[path15.name] = path15;
+          parentValue[path16.name] = path16.value;
+          parentCache[path16.name] = path16;
         }
-        if (parentValue[path15.name] !== path15.value) {
+        if (parentValue[path16.name] !== path16.value) {
           throw new Error("");
         }
-        if (path15.parentPath.get(path15.name) !== path15) {
+        if (path16.parentPath.get(path16.name) !== path16) {
           throw new Error("");
         }
-        return path15;
+        return path16;
       }
       Pp.replace = function replace2(replacement) {
         var results = [];
@@ -3075,12 +3159,12 @@ var require_scope = __commonJS({
       var Expression = namedTypes.Expression;
       var isArray = types2.builtInTypes.array;
       var b2 = types2.builders;
-      var Scope = function Scope2(path15, parentScope) {
+      var Scope = function Scope2(path16, parentScope) {
         if (!(this instanceof Scope2)) {
           throw new Error("Scope constructor cannot be invoked without 'new'");
         }
-        if (!TypeParameterScopeType.check(path15.value)) {
-          ScopeType.assert(path15.value);
+        if (!TypeParameterScopeType.check(path16.value)) {
+          ScopeType.assert(path16.value);
         }
         var depth;
         if (parentScope) {
@@ -3093,8 +3177,8 @@ var require_scope = __commonJS({
           depth = 0;
         }
         Object.defineProperties(this, {
-          path: { value: path15 },
-          node: { value: path15.value },
+          path: { value: path16 },
+          node: { value: path16.value },
           isGlobal: { value: !parentScope, enumerable: true },
           depth: { value: depth },
           parent: { value: parentScope },
@@ -3173,10 +3257,10 @@ var require_scope = __commonJS({
         this.scan();
         return this.types;
       };
-      function scanScope(path15, bindings, scopeTypes) {
-        var node = path15.value;
+      function scanScope(path16, bindings, scopeTypes) {
+        var node = path16.value;
         if (TypeParameterScopeType.check(node)) {
-          var params = path15.get("typeParameters", "params");
+          var params = path16.get("typeParameters", "params");
           if (isArray.check(params.value)) {
             params.each(function(childPath) {
               addTypeParameter(childPath, scopeTypes);
@@ -3185,45 +3269,45 @@ var require_scope = __commonJS({
         }
         if (ScopeType.check(node)) {
           if (namedTypes.CatchClause.check(node)) {
-            addPattern(path15.get("param"), bindings);
+            addPattern(path16.get("param"), bindings);
           } else {
-            recursiveScanScope(path15, bindings, scopeTypes);
+            recursiveScanScope(path16, bindings, scopeTypes);
           }
         }
       }
-      function recursiveScanScope(path15, bindings, scopeTypes) {
-        var node = path15.value;
-        if (path15.parent && namedTypes.FunctionExpression.check(path15.parent.node) && path15.parent.node.id) {
-          addPattern(path15.parent.get("id"), bindings);
+      function recursiveScanScope(path16, bindings, scopeTypes) {
+        var node = path16.value;
+        if (path16.parent && namedTypes.FunctionExpression.check(path16.parent.node) && path16.parent.node.id) {
+          addPattern(path16.parent.get("id"), bindings);
         }
         if (!node) {
         } else if (isArray.check(node)) {
-          path15.each(function(childPath) {
+          path16.each(function(childPath) {
             recursiveScanChild(childPath, bindings, scopeTypes);
           });
         } else if (namedTypes.Function.check(node)) {
-          path15.get("params").each(function(paramPath) {
+          path16.get("params").each(function(paramPath) {
             addPattern(paramPath, bindings);
           });
-          recursiveScanChild(path15.get("body"), bindings, scopeTypes);
-          recursiveScanScope(path15.get("typeParameters"), bindings, scopeTypes);
+          recursiveScanChild(path16.get("body"), bindings, scopeTypes);
+          recursiveScanScope(path16.get("typeParameters"), bindings, scopeTypes);
         } else if (namedTypes.TypeAlias && namedTypes.TypeAlias.check(node) || namedTypes.InterfaceDeclaration && namedTypes.InterfaceDeclaration.check(node) || namedTypes.TSTypeAliasDeclaration && namedTypes.TSTypeAliasDeclaration.check(node) || namedTypes.TSInterfaceDeclaration && namedTypes.TSInterfaceDeclaration.check(node)) {
-          addTypePattern(path15.get("id"), scopeTypes);
+          addTypePattern(path16.get("id"), scopeTypes);
         } else if (namedTypes.VariableDeclarator.check(node)) {
-          addPattern(path15.get("id"), bindings);
-          recursiveScanChild(path15.get("init"), bindings, scopeTypes);
+          addPattern(path16.get("id"), bindings);
+          recursiveScanChild(path16.get("init"), bindings, scopeTypes);
         } else if (node.type === "ImportSpecifier" || node.type === "ImportNamespaceSpecifier" || node.type === "ImportDefaultSpecifier") {
           addPattern(
             // Esprima used to use the .name field to refer to the local
             // binding identifier for ImportSpecifier nodes, but .id for
             // ImportNamespaceSpecifier and ImportDefaultSpecifier nodes.
             // ESTree/Acorn/ESpree use .local for all three node types.
-            path15.get(node.local ? "local" : node.name ? "name" : "id"),
+            path16.get(node.local ? "local" : node.name ? "name" : "id"),
             bindings
           );
         } else if (Node.check(node) && !Expression.check(node)) {
           types2.eachField(node, function(name, child) {
-            var childPath = path15.get(name);
+            var childPath = path16.get(name);
             if (!pathHasValue(childPath, child)) {
               throw new Error("");
             }
@@ -3231,37 +3315,37 @@ var require_scope = __commonJS({
           });
         }
       }
-      function pathHasValue(path15, value) {
-        if (path15.value === value) {
+      function pathHasValue(path16, value) {
+        if (path16.value === value) {
           return true;
         }
-        if (Array.isArray(path15.value) && path15.value.length === 0 && Array.isArray(value) && value.length === 0) {
+        if (Array.isArray(path16.value) && path16.value.length === 0 && Array.isArray(value) && value.length === 0) {
           return true;
         }
         return false;
       }
-      function recursiveScanChild(path15, bindings, scopeTypes) {
-        var node = path15.value;
+      function recursiveScanChild(path16, bindings, scopeTypes) {
+        var node = path16.value;
         if (!node || Expression.check(node)) {
         } else if (namedTypes.FunctionDeclaration.check(node) && node.id !== null) {
-          addPattern(path15.get("id"), bindings);
+          addPattern(path16.get("id"), bindings);
         } else if (namedTypes.ClassDeclaration && namedTypes.ClassDeclaration.check(node) && node.id !== null) {
-          addPattern(path15.get("id"), bindings);
-          recursiveScanScope(path15.get("typeParameters"), bindings, scopeTypes);
+          addPattern(path16.get("id"), bindings);
+          recursiveScanScope(path16.get("typeParameters"), bindings, scopeTypes);
         } else if (namedTypes.InterfaceDeclaration && namedTypes.InterfaceDeclaration.check(node) || namedTypes.TSInterfaceDeclaration && namedTypes.TSInterfaceDeclaration.check(node)) {
-          addTypePattern(path15.get("id"), scopeTypes);
+          addTypePattern(path16.get("id"), scopeTypes);
         } else if (ScopeType.check(node)) {
           if (namedTypes.CatchClause.check(node) && // TODO Broaden this to accept any pattern.
           namedTypes.Identifier.check(node.param)) {
             var catchParamName = node.param.name;
             var hadBinding = hasOwn.call(bindings, catchParamName);
-            recursiveScanScope(path15.get("body"), bindings, scopeTypes);
+            recursiveScanScope(path16.get("body"), bindings, scopeTypes);
             if (!hadBinding) {
               delete bindings[catchParamName];
             }
           }
         } else {
-          recursiveScanScope(path15, bindings, scopeTypes);
+          recursiveScanScope(path16, bindings, scopeTypes);
         }
       }
       function addPattern(patternPath, bindings) {
@@ -3610,53 +3694,53 @@ var require_node_path = __commonJS({
       NPp.firstInStatement = function() {
         return firstInStatement(this);
       };
-      function firstInStatement(path15) {
-        for (var node, parent; path15.parent; path15 = path15.parent) {
-          node = path15.node;
-          parent = path15.parent.node;
-          if (n.BlockStatement.check(parent) && path15.parent.name === "body" && path15.name === 0) {
+      function firstInStatement(path16) {
+        for (var node, parent; path16.parent; path16 = path16.parent) {
+          node = path16.node;
+          parent = path16.parent.node;
+          if (n.BlockStatement.check(parent) && path16.parent.name === "body" && path16.name === 0) {
             if (parent.body[0] !== node) {
               throw new Error("Nodes must be equal");
             }
             return true;
           }
-          if (n.ExpressionStatement.check(parent) && path15.name === "expression") {
+          if (n.ExpressionStatement.check(parent) && path16.name === "expression") {
             if (parent.expression !== node) {
               throw new Error("Nodes must be equal");
             }
             return true;
           }
-          if (n.SequenceExpression.check(parent) && path15.parent.name === "expressions" && path15.name === 0) {
+          if (n.SequenceExpression.check(parent) && path16.parent.name === "expressions" && path16.name === 0) {
             if (parent.expressions[0] !== node) {
               throw new Error("Nodes must be equal");
             }
             continue;
           }
-          if (n.CallExpression.check(parent) && path15.name === "callee") {
+          if (n.CallExpression.check(parent) && path16.name === "callee") {
             if (parent.callee !== node) {
               throw new Error("Nodes must be equal");
             }
             continue;
           }
-          if (n.MemberExpression.check(parent) && path15.name === "object") {
+          if (n.MemberExpression.check(parent) && path16.name === "object") {
             if (parent.object !== node) {
               throw new Error("Nodes must be equal");
             }
             continue;
           }
-          if (n.ConditionalExpression.check(parent) && path15.name === "test") {
+          if (n.ConditionalExpression.check(parent) && path16.name === "test") {
             if (parent.test !== node) {
               throw new Error("Nodes must be equal");
             }
             continue;
           }
-          if (isBinary(parent) && path15.name === "left") {
+          if (isBinary(parent) && path16.name === "left") {
             if (parent.left !== node) {
               throw new Error("Nodes must be equal");
             }
             continue;
           }
-          if (n.UnaryExpression.check(parent) && !parent.prefix && path15.name === "argument") {
+          if (n.UnaryExpression.check(parent) && !parent.prefix && path16.name === "argument") {
             if (parent.argument !== node) {
               throw new Error("Nodes must be equal");
             }
@@ -3830,36 +3914,36 @@ var require_path_visitor = __commonJS({
       };
       PVp.reset = function(_path) {
       };
-      PVp.visitWithoutReset = function(path15) {
+      PVp.visitWithoutReset = function(path16) {
         if (this instanceof this.Context) {
-          return this.visitor.visitWithoutReset(path15);
+          return this.visitor.visitWithoutReset(path16);
         }
-        if (!(path15 instanceof NodePath)) {
+        if (!(path16 instanceof NodePath)) {
           throw new Error("");
         }
-        var value = path15.value;
+        var value = path16.value;
         var methodName = value && typeof value === "object" && typeof value.type === "string" && this._methodNameTable[value.type];
         if (methodName) {
-          var context = this.acquireContext(path15);
+          var context = this.acquireContext(path16);
           try {
             return context.invokeVisitorMethod(methodName);
           } finally {
             this.releaseContext(context);
           }
         } else {
-          return visitChildren(path15, this);
+          return visitChildren(path16, this);
         }
       };
-      function visitChildren(path15, visitor) {
-        if (!(path15 instanceof NodePath)) {
+      function visitChildren(path16, visitor) {
+        if (!(path16 instanceof NodePath)) {
           throw new Error("");
         }
         if (!(visitor instanceof PathVisitor)) {
           throw new Error("");
         }
-        var value = path15.value;
+        var value = path16.value;
         if (isArray.check(value)) {
-          path15.each(visitor.visitWithoutReset, visitor);
+          path16.each(visitor.visitWithoutReset, visitor);
         } else if (!isObject.check(value)) {
         } else {
           var childNames = types2.getFieldNames(value);
@@ -3873,19 +3957,19 @@ var require_path_visitor = __commonJS({
             if (!hasOwn.call(value, childName)) {
               value[childName] = types2.getFieldValue(value, childName);
             }
-            childPaths.push(path15.get(childName));
+            childPaths.push(path16.get(childName));
           }
           for (var i = 0; i < childCount; ++i) {
             visitor.visitWithoutReset(childPaths[i]);
           }
         }
-        return path15.value;
+        return path16.value;
       }
-      PVp.acquireContext = function(path15) {
+      PVp.acquireContext = function(path16) {
         if (this._reusableContextStack.length === 0) {
-          return new this.Context(path15);
+          return new this.Context(path16);
         }
-        return this._reusableContextStack.pop().reset(path15);
+        return this._reusableContextStack.pop().reset(path16);
       };
       PVp.releaseContext = function(context) {
         if (!(context instanceof this.Context)) {
@@ -3901,14 +3985,14 @@ var require_path_visitor = __commonJS({
         return this._changeReported;
       };
       function makeContextConstructor(visitor) {
-        function Context(path15) {
+        function Context(path16) {
           if (!(this instanceof Context)) {
             throw new Error("");
           }
           if (!(this instanceof PathVisitor)) {
             throw new Error("");
           }
-          if (!(path15 instanceof NodePath)) {
+          if (!(path16 instanceof NodePath)) {
             throw new Error("");
           }
           Object.defineProperty(this, "visitor", {
@@ -3917,7 +4001,7 @@ var require_path_visitor = __commonJS({
             enumerable: true,
             configurable: false
           });
-          this.currentPath = path15;
+          this.currentPath = path16;
           this.needToCallTraverse = true;
           Object.seal(this);
         }
@@ -3930,14 +4014,14 @@ var require_path_visitor = __commonJS({
         return Context;
       }
       var sharedContextProtoMethods = /* @__PURE__ */ Object.create(null);
-      sharedContextProtoMethods.reset = function reset(path15) {
+      sharedContextProtoMethods.reset = function reset(path16) {
         if (!(this instanceof this.Context)) {
           throw new Error("");
         }
-        if (!(path15 instanceof NodePath)) {
+        if (!(path16 instanceof NodePath)) {
           throw new Error("");
         }
-        this.currentPath = path15;
+        this.currentPath = path16;
         this.needToCallTraverse = true;
         return this;
       };
@@ -3960,34 +4044,34 @@ var require_path_visitor = __commonJS({
         if (this.needToCallTraverse !== false) {
           throw new Error("Must either call this.traverse or return false in " + methodName);
         }
-        var path15 = this.currentPath;
-        return path15 && path15.value;
+        var path16 = this.currentPath;
+        return path16 && path16.value;
       };
-      sharedContextProtoMethods.traverse = function traverse2(path15, newVisitor) {
+      sharedContextProtoMethods.traverse = function traverse2(path16, newVisitor) {
         if (!(this instanceof this.Context)) {
           throw new Error("");
         }
-        if (!(path15 instanceof NodePath)) {
+        if (!(path16 instanceof NodePath)) {
           throw new Error("");
         }
         if (!(this.currentPath instanceof NodePath)) {
           throw new Error("");
         }
         this.needToCallTraverse = false;
-        return visitChildren(path15, PathVisitor.fromMethodsObject(newVisitor || this.visitor));
+        return visitChildren(path16, PathVisitor.fromMethodsObject(newVisitor || this.visitor));
       };
-      sharedContextProtoMethods.visit = function visit3(path15, newVisitor) {
+      sharedContextProtoMethods.visit = function visit3(path16, newVisitor) {
         if (!(this instanceof this.Context)) {
           throw new Error("");
         }
-        if (!(path15 instanceof NodePath)) {
+        if (!(path16 instanceof NodePath)) {
           throw new Error("");
         }
         if (!(this.currentPath instanceof NodePath)) {
           throw new Error("");
         }
         this.needToCallTraverse = false;
-        return PathVisitor.fromMethodsObject(newVisitor || this.visitor).visitWithoutReset(path15);
+        return PathVisitor.fromMethodsObject(newVisitor || this.visitor).visitWithoutReset(path16);
       };
       sharedContextProtoMethods.reportChanged = function reportChanged() {
         this.visitor.reportChanged();
@@ -5479,6 +5563,18 @@ function isNestedInsideComponent(nodePath) {
   }
   return false;
 }
+function hasUseClientDirective(programBody) {
+  const firstStatement = programBody[0];
+  return firstStatement?.type === "ExpressionStatement" && firstStatement?.expression?.type === "StringLiteral" && firstStatement?.expression?.value === "use client";
+}
+function addUseClientDirective(programBody) {
+  if (hasUseClientDirective(programBody)) return;
+  programBody.unshift({
+    type: "ExpressionStatement",
+    expression: import_ast_types.builders.literal("use client"),
+    directive: "use client"
+  });
+}
 function buildTCall(key) {
   return import_ast_types.builders.callExpression(import_ast_types.builders.identifier("t"), [import_ast_types.builders.literal(key)]);
 }
@@ -5492,6 +5588,23 @@ function buildTCallWithParams(key, params) {
     import_ast_types.builders.literal(key),
     import_ast_types.builders.objectExpression(props)
   ]);
+}
+function buildI18nTCall(key) {
+  return import_ast_types.builders.callExpression(
+    import_ast_types.builders.memberExpression(import_ast_types.builders.identifier("i18n"), import_ast_types.builders.identifier("t")),
+    [import_ast_types.builders.literal(key)]
+  );
+}
+function buildI18nTCallWithParams(key, params) {
+  const props = params.map((param) => {
+    const prop = import_ast_types.builders.property("init", import_ast_types.builders.identifier(param), import_ast_types.builders.identifier(param));
+    prop.shorthand = true;
+    return prop;
+  });
+  return import_ast_types.builders.callExpression(
+    import_ast_types.builders.memberExpression(import_ast_types.builders.identifier("i18n"), import_ast_types.builders.identifier("t")),
+    [import_ast_types.builders.literal(key), import_ast_types.builders.objectExpression(props)]
+  );
 }
 function buildJSXExpression(call) {
   return import_ast_types.builders.jsxExpressionContainer(call);
@@ -5564,15 +5677,22 @@ function findExtractedTemplate(node, filePath, fileStrings) {
     (s) => s.filePath === filePath && s.originalText === text.trim()
   );
 }
-function hasImport(programBody, source, name) {
+function resolveI18nImportPath(filePath, appRoot, config) {
+  const i18nAbs = import_path9.default.join(appRoot, config.i18nFilePath ?? "src/i18n.ts");
+  let rel = import_path9.default.relative(import_path9.default.dirname(filePath), i18nAbs).replace(/\\/g, "/");
+  rel = rel.replace(/\.(ts|tsx|js|jsx)$/, "");
+  if (!rel.startsWith(".")) rel = `./${rel}`;
+  return rel;
+}
+function hasDefaultImport(programBody, source, localName) {
   return programBody.some(
     (node) => node.type === "ImportDeclaration" && node.source.value === source && node.specifiers?.some(
-      (spec) => spec.type === "ImportSpecifier" && spec.imported?.name === name
+      (spec) => spec.type === "ImportDefaultSpecifier" && spec.local?.name === localName
     )
   );
 }
-function addImport(programBody, source, name, buildFn) {
-  if (hasImport(programBody, source, name)) return;
+function addDefaultImport(programBody, source, localName, buildFn) {
+  if (hasDefaultImport(programBody, source, localName)) return;
   let lastImportIndex = -1;
   for (let i = 0; i < programBody.length; i++) {
     if (programBody[i].type === "ImportDeclaration") lastImportIndex = i;
@@ -5581,7 +5701,11 @@ function addImport(programBody, source, name, buildFn) {
   if (lastImportIndex >= 0) {
     programBody.splice(lastImportIndex + 1, 0, node);
   } else {
-    programBody.unshift(node);
+    if (hasUseClientDirective(programBody)) {
+      programBody.splice(1, 0, node);
+    } else {
+      programBody.unshift(node);
+    }
   }
 }
 function hasTDeclaration(statements) {
@@ -5636,21 +5760,46 @@ function alreadyHasTParam(node) {
     (p) => p.type === "Identifier" && p.name === "t"
   );
 }
-function replaceStringNode(node, filePath, fileStrings, sourceType) {
+function buildCallForExtracted(extracted, useI18nInstance) {
+  if (useI18nInstance) {
+    return extracted.params.length > 0 ? buildI18nTCallWithParams(extracted.fullKey, extracted.params) : buildI18nTCall(extracted.fullKey);
+  }
+  return extracted.params.length > 0 ? buildTCallWithParams(extracted.fullKey, extracted.params) : buildTCall(extracted.fullKey);
+}
+function replaceStringNode(node, filePath, fileStrings, sourceType, options = {}) {
   if (!node) return [node, 0];
+  const useI18n = options.useI18nInstance === true;
   if (node.type === "StringLiteral" || node.type === "Literal") {
     const value = node.value;
     if (typeof value !== "string") return [node, 0];
     const extracted = findExtracted(value, filePath, fileStrings, sourceType);
     if (!extracted) return [node, 0];
-    const call = extracted.params.length > 0 ? buildTCallWithParams(extracted.fullKey, extracted.params) : buildTCall(extracted.fullKey);
-    return [call, 1];
+    return [buildCallForExtracted(extracted, useI18n), 1];
   }
   if (node.type === "TemplateLiteral") {
-    const extracted = findExtractedTemplate(node, filePath, fileStrings);
-    if (!extracted) return [node, 0];
-    const call = extracted.params.length > 0 ? buildTCallWithParams(extracted.fullKey, extracted.params) : buildTCall(extracted.fullKey);
-    return [call, 1];
+    const onlyIds = (node.expressions ?? []).every(
+      (expr) => expr.type === "Identifier"
+    );
+    if (onlyIds) {
+      const extracted = findExtractedTemplate(node, filePath, fileStrings);
+      if (!extracted) return [node, 0];
+      return [buildCallForExtracted(extracted, useI18n), 1];
+    }
+    let count = 0;
+    for (let i = 0; i < node.expressions.length; i++) {
+      const [newExpr, c] = replaceStringNode(
+        node.expressions[i],
+        filePath,
+        fileStrings,
+        sourceType,
+        options
+      );
+      if (c > 0) {
+        node.expressions[i] = newExpr;
+        count += c;
+      }
+    }
+    return [node, count];
   }
   if (node.type === "ConditionalExpression") {
     let count = 0;
@@ -5658,7 +5807,8 @@ function replaceStringNode(node, filePath, fileStrings, sourceType) {
       node.consequent,
       filePath,
       fileStrings,
-      sourceType
+      sourceType,
+      options
     );
     if (c1 > 0) {
       node.consequent = newConsequent;
@@ -5668,7 +5818,8 @@ function replaceStringNode(node, filePath, fileStrings, sourceType) {
       node.alternate,
       filePath,
       fileStrings,
-      sourceType
+      sourceType,
+      options
     );
     if (c2 > 0) {
       node.alternate = newAlternate;
@@ -5682,7 +5833,8 @@ function replaceStringNode(node, filePath, fileStrings, sourceType) {
       node.left,
       filePath,
       fileStrings,
-      sourceType
+      sourceType,
+      options
     );
     if (c1 > 0) {
       node.left = newLeft;
@@ -5692,7 +5844,8 @@ function replaceStringNode(node, filePath, fileStrings, sourceType) {
       node.right,
       filePath,
       fileStrings,
-      sourceType
+      sourceType,
+      options
     );
     if (c2 > 0) {
       node.right = newRight;
@@ -5702,14 +5855,47 @@ function replaceStringNode(node, filePath, fileStrings, sourceType) {
   }
   return [node, 0];
 }
-function transformFile(filePath, appRoot, strings, localeData) {
+function replaceAlertButtonObject(obj, filePath, fileStrings) {
+  if (obj?.type !== "ObjectExpression") return 0;
+  let count = 0;
+  for (const prop of obj.properties ?? []) {
+    if (prop.type !== "ObjectProperty" && prop.type !== "Property") continue;
+    if (prop.computed) continue;
+    const keyName = prop.key?.type === "Identifier" ? prop.key.name : prop.key?.type === "StringLiteral" || prop.key?.type === "Literal" ? prop.key.value : null;
+    if (keyName !== "text") continue;
+    const [newValue, c] = replaceStringNode(
+      prop.value,
+      filePath,
+      fileStrings,
+      "alert",
+      { useI18nInstance: false }
+    );
+    if (c > 0) {
+      prop.value = newValue;
+      count += c;
+    }
+  }
+  return count;
+}
+function replaceAlertButtonsArg(arg, filePath, fileStrings) {
+  if (arg?.type !== "ArrayExpression") return 0;
+  let count = 0;
+  for (const el of arg.elements ?? []) {
+    if (!el) continue;
+    if (el.type === "ObjectExpression") {
+      count += replaceAlertButtonObject(el, filePath, fileStrings);
+    }
+  }
+  return count;
+}
+function transformFile(filePath, appRoot, strings, localeData, config) {
   const code = readFileSafe(filePath);
   if (!code) return { filePath, modified: false, replacements: 0 };
   const fileStrings = strings.filter(
     (s) => s.filePath === filePath && localeData[s.fullKey] !== void 0
   );
   if (fileStrings.length === 0) {
-    logger.debug(`  No matching strings: ${import_path8.default.relative(appRoot, filePath)}`);
+    logger.debug(`  No matching strings: ${import_path9.default.relative(appRoot, filePath)}`);
     return { filePath, modified: false, replacements: 0 };
   }
   let ast;
@@ -5735,7 +5921,7 @@ function transformFile(filePath, appRoot, strings, localeData) {
     });
   } catch (err) {
     logger.warn(
-      `  Could not parse ${import_path8.default.relative(appRoot, filePath)} \u2014 skipping`
+      `  Could not parse ${import_path9.default.relative(appRoot, filePath)} \u2014 skipping`
     );
     logger.debug(String(err));
     return { filePath, modified: false, replacements: 0 };
@@ -5839,25 +6025,46 @@ function transformFile(filePath, appRoot, strings, localeData) {
       } else if (callee.type === "MemberExpression" && callee.object?.type === "Identifier" && callee.property?.type === "Identifier") {
         calleeName = `${callee.object.name}.${callee.property.name}`;
       }
-      if (calleeName) {
-        const isAlert = calleeName === "Alert.alert";
-        const isCustom = fileStrings.some((s) => s.sourceType === "call");
-        if (isAlert || isCustom) {
-          const sourceType = isAlert ? "alert" : "call";
-          args.forEach((arg, index) => {
-            const isStr = arg.type === "StringLiteral" || arg.type === "Literal";
-            if (!isStr || typeof arg.value !== "string") return;
-            const extracted = findExtracted(
-              arg.value,
+      if (calleeName === "Alert.alert") {
+        args.forEach((arg, index) => {
+          if (!arg || arg.type === "SpreadElement") return;
+          if (index === 0 || index === 1) {
+            const [newArg, count] = replaceStringNode(
+              arg,
               filePath,
               fileStrings,
-              sourceType
+              "alert",
+              { useI18nInstance: false }
             );
-            if (!extracted) return;
-            nodePath.node.arguments[index] = buildTCall(extracted.fullKey);
-            totalReplacements++;
-          });
-        }
+            if (count > 0) {
+              nodePath.node.arguments[index] = newArg;
+              totalReplacements += count;
+            }
+            return;
+          }
+          if (index === 2) {
+            totalReplacements += replaceAlertButtonsArg(
+              arg,
+              filePath,
+              fileStrings
+            );
+          }
+        });
+      } else if (calleeName && fileStrings.some((s) => s.sourceType === "call")) {
+        args.forEach((arg, index) => {
+          if (!arg || arg.type === "SpreadElement") return;
+          const [newArg, count] = replaceStringNode(
+            arg,
+            filePath,
+            fileStrings,
+            "call",
+            { useI18nInstance: false }
+          );
+          if (count > 0) {
+            nodePath.node.arguments[index] = newArg;
+            totalReplacements += count;
+          }
+        });
       }
       this.traverse(nodePath);
     },
@@ -5877,6 +6084,29 @@ function transformFile(filePath, appRoot, strings, localeData) {
           argument.arguments[index] = buildTCall(extracted.fullKey);
           totalReplacements++;
         });
+      }
+      this.traverse(nodePath);
+    },
+    // ── Return statements (utils / helpers) ───────────────────────────────────
+    visitReturnStatement(nodePath) {
+      const arg = nodePath.node.argument;
+      if (!arg) return this.traverse(nodePath);
+      const insideComponent = isNestedInsideComponent(nodePath);
+      const useI18nInstance = !insideComponent;
+      const [newArg, count] = replaceStringNode(
+        arg,
+        filePath,
+        fileStrings,
+        "return",
+        // must match scanner sourceType for returns
+        { useI18nInstance }
+      );
+      if (count > 0) {
+        nodePath.node.argument = newArg;
+        totalReplacements += count;
+        if (useI18nInstance) {
+          fileNeedsI18nImport = true;
+        }
       }
       this.traverse(nodePath);
     },
@@ -5959,15 +6189,35 @@ function transformFile(filePath, appRoot, strings, localeData) {
     }
   }
   if (componentBlocks.size > 0) {
-    addImport(
+    addDefaultImport(
       ast.program.body,
       "react-i18next",
       "useTranslation",
       buildUseTranslationImport
     );
+    if (config.addUseClientDirective) {
+      addUseClientDirective(ast.program.body);
+    }
   }
   if (helperNamesWithT.size > 0) {
-    addImport(ast.program.body, "i18next", "TFunction", buildTFunctionImport);
+    addDefaultImport(
+      ast.program.body,
+      "i18next",
+      "TFunction",
+      buildTFunctionImport
+    );
+  }
+  if (fileNeedsI18nImport) {
+    const importPath = resolveI18nImportPath(filePath, appRoot, config);
+    addDefaultImport(
+      ast.program.body,
+      importPath,
+      "i18n",
+      () => import_ast_types.builders.importDeclaration(
+        [import_ast_types.builders.importDefaultSpecifier(import_ast_types.builders.identifier("i18n"))],
+        import_ast_types.builders.literal(importPath)
+      )
+    );
   }
   const newCode = recast.print(ast).code;
   return {
@@ -5983,54 +6233,63 @@ function functionBodyContainsTCall(block) {
   }
   let found = false;
   (0, import_ast_types.visit)(block, {
-    visitCallExpression(path15) {
-      const node = path15.node;
+    visitCallExpression(path16) {
+      const node = path16.node;
       if (node.callee?.type === "Identifier" && node.callee.name === "t") {
         found = true;
         return false;
       }
-      this.traverse(path15);
+      this.traverse(path16);
     }
   });
   return found;
 }
 async function transformProject(appRoot, strings, localeData) {
+  const config = await requireConfig(appRoot);
   const uniqueFiles = [...new Set(strings.map((s) => s.filePath))];
   logger.dim(`  Processing ${uniqueFiles.length} file(s)...`);
   const results = [];
   for (const filePath of uniqueFiles) {
-    const result = transformFile(filePath, appRoot, strings, localeData);
+    const result = transformFile(
+      filePath,
+      appRoot,
+      strings,
+      localeData,
+      config
+    );
     results.push(result);
     if (result.modified) {
       logger.dim(
-        `  \u2713 ${import_path8.default.relative(appRoot, filePath)} \u2014 ${result.replacements} replacement(s)`
+        `  \u2713 ${import_path9.default.relative(appRoot, filePath)} \u2014 ${result.replacements} replacement(s)`
       );
     } else {
-      logger.debug(`  \u25CB ${import_path8.default.relative(appRoot, filePath)} \u2014 no changes`);
+      logger.debug(`  \u25CB ${import_path9.default.relative(appRoot, filePath)} \u2014 no changes`);
     }
   }
   return results;
 }
-var recast, import_ast_types, import_path8;
+var recast, import_ast_types, import_path9, fileNeedsI18nImport;
 var init_transformer = __esm({
   "src/core/transformer.ts"() {
     "use strict";
     init_cjs_shims();
     recast = __toESM(require("recast"));
     import_ast_types = __toESM(require_main());
-    import_path8 = __toESM(require("path"));
+    import_path9 = __toESM(require("path"));
     init_fs();
     init_logger();
     init_normalize();
+    init_config2();
+    fileNeedsI18nImport = false;
   }
 });
 
 // src/utils/backup.ts
 function backupFile(filePath) {
   const backupPath = `${filePath}${BAK_EXT}`;
-  if (!import_fs10.default.existsSync(backupPath)) {
-    import_fs10.default.copyFileSync(filePath, backupPath);
-    logger.debug(`  Backed up: ${import_path9.default.basename(filePath)}`);
+  if (!import_fs12.default.existsSync(backupPath)) {
+    import_fs12.default.copyFileSync(filePath, backupPath);
+    logger.debug(`  Backed up: ${import_path10.default.basename(filePath)}`);
   }
 }
 async function findBackupFiles(appRoot) {
@@ -6047,13 +6306,13 @@ async function restoreAllBackups(appRoot) {
   for (const backupPath of backupFiles) {
     const originalPath = backupPath.slice(0, -BAK_EXT.length);
     try {
-      import_fs10.default.copyFileSync(backupPath, originalPath);
-      import_fs10.default.unlinkSync(backupPath);
+      import_fs12.default.copyFileSync(backupPath, originalPath);
+      import_fs12.default.unlinkSync(backupPath);
       restored++;
-      logger.success(`Restored: ${import_path9.default.relative(appRoot, originalPath)}`);
+      logger.success(`Restored: ${import_path10.default.relative(appRoot, originalPath)}`);
     } catch (err) {
       logger.error(
-        `Failed to restore ${import_path9.default.relative(appRoot, originalPath)}: ${String(err)}`
+        `Failed to restore ${import_path10.default.relative(appRoot, originalPath)}: ${String(err)}`
       );
     }
   }
@@ -6064,7 +6323,7 @@ async function deleteAllBackups(appRoot) {
   let deleted = 0;
   for (const backupPath of backupFiles) {
     try {
-      import_fs10.default.unlinkSync(backupPath);
+      import_fs12.default.unlinkSync(backupPath);
       deleted++;
     } catch (err) {
       logger.error(`Failed to delete backup: ${backupPath}: ${String(err)}`);
@@ -6072,13 +6331,13 @@ async function deleteAllBackups(appRoot) {
   }
   return deleted;
 }
-var import_fs10, import_path9, import_glob2, BAK_EXT;
+var import_fs12, import_path10, import_glob2, BAK_EXT;
 var init_backup = __esm({
   "src/utils/backup.ts"() {
     "use strict";
     init_cjs_shims();
-    import_fs10 = __toESM(require("fs"));
-    import_path9 = __toESM(require("path"));
+    import_fs12 = __toESM(require("fs"));
+    import_path10 = __toESM(require("path"));
     import_glob2 = require("glob");
     init_logger();
     BAK_EXT = ".i18nbak";
@@ -6091,10 +6350,10 @@ __export(replace_exports, {
   replace: () => replace
 });
 async function replace(options) {
-  const appRoot = import_path10.default.resolve(options.path);
+  const appRoot = import_path11.default.resolve(options.path);
   const isDryRun = options.dryRun ?? false;
   const config = await requireConfig(appRoot);
-  const localesDir = import_path10.default.join(appRoot, config.localesDir);
+  const localesDir = import_path11.default.join(appRoot, config.localesDir);
   const dirError = validateLocalesDir(config.localesDir, appRoot);
   if (dirError) {
     logger.error(`Invalid "localesDir" in your config:
@@ -6110,7 +6369,7 @@ async function replace(options) {
   );
   if (!exists(localeFilePath)) {
     logger.error(
-      `Locale file not found: ${import_path10.default.relative(appRoot, localeFilePath)}
+      `Locale file not found: ${import_path11.default.relative(appRoot, localeFilePath)}
   Run "rai scan" first to generate the locale file.`
     );
     process.exit(1);
@@ -6121,7 +6380,7 @@ async function replace(options) {
     config.localeFileName
   );
   const keyCount = Object.keys(localeData).length;
-  logger.info(`  Locale file : ${import_path10.default.relative(appRoot, localeFilePath)}`);
+  logger.info(`  Locale file : ${import_path11.default.relative(appRoot, localeFilePath)}`);
   logger.info(`  Keys loaded : ${keyCount}`);
   if (keyCount === 0) {
     logger.error(`The locale file is empty. Run "rai scan" to populate it.`);
@@ -6159,12 +6418,12 @@ async function replace(options) {
   logger.newline();
   modifiedResults.forEach((result) => {
     logger.info(
-      `  ${import_chalk3.default.cyan(import_path10.default.relative(appRoot, result.filePath))}` + import_chalk3.default.gray(` \u2014 ${result.replacements} replacement(s)`)
+      `  ${import_chalk4.default.cyan(import_path11.default.relative(appRoot, result.filePath))}` + import_chalk4.default.gray(` \u2014 ${result.replacements} replacement(s)`)
     );
   });
   logger.newline();
   logger.info(
-    `  ${import_chalk3.default.bold(String(modifiedResults.length))} file(s) will be modified with ${import_chalk3.default.bold(String(totalReplacements))} total replacement(s)`
+    `  ${import_chalk4.default.bold(String(modifiedResults.length))} file(s) will be modified with ${import_chalk4.default.bold(String(totalReplacements))} total replacement(s)`
   );
   if (isDryRun) {
     logger.newline();
@@ -6195,11 +6454,11 @@ async function replace(options) {
       writeFile(result.filePath, result.newCode);
       written++;
       logger.success(
-        `${import_path10.default.relative(appRoot, result.filePath)} \u2014 ${result.replacements} replacement(s)`
+        `${import_path11.default.relative(appRoot, result.filePath)} \u2014 ${result.replacements} replacement(s)`
       );
     } catch (err) {
       logger.error(
-        `Failed to write ${import_path10.default.relative(appRoot, result.filePath)}: ${String(err)}`
+        `Failed to write ${import_path11.default.relative(appRoot, result.filePath)}: ${String(err)}`
       );
     }
   }
@@ -6211,32 +6470,32 @@ async function replace(options) {
        npx expo start
 
   2. If something looks wrong, revert your changes:
-       ${import_chalk3.default.cyan("rai revert")}
+       ${import_chalk4.default.cyan("rai revert")}
        Restores all files to their state before replace was run.
 
        Or using git:
-       ${import_chalk3.default.cyan("git checkout .")}
+       ${import_chalk4.default.cyan("git checkout .")}
        Discards all uncommitted changes. This is why we asked you to commit before running replace.
 
   3. If everything looks good, clean up backups and commit:
-       ${import_chalk3.default.cyan("rai revert --clean")}
-       ${import_chalk3.default.cyan("git add .")}
-       ${import_chalk3.default.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
+       ${import_chalk4.default.cyan("rai revert --clean")}
+       ${import_chalk4.default.cyan("git add .")}
+       ${import_chalk4.default.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
 
   4. To add translations for other languages:
-       ${import_chalk3.default.cyan(`rai locales-generate --only fr,es`)}
+       ${import_chalk4.default.cyan(`rai locales-generate --only fr,es`)}
        Generates locale files for the specified languages based on your default locale.
 
        Options:
-         ${import_chalk3.default.gray("--only <langs>")}     Comma-separated language codes to generate (e.g. fr,es,ar)
-         ${import_chalk3.default.gray("--force")}            Overwrite existing locale files
-         ${import_chalk3.default.gray("--with-imports")}     Automatically wire imports into your i18n config file
-         ${import_chalk3.default.gray("--dry-run")}          Preview what would be generated without writing files
+         ${import_chalk4.default.gray("--only <langs>")}     Comma-separated language codes to generate (e.g. fr,es,ar)
+         ${import_chalk4.default.gray("--force")}            Overwrite existing locale files
+         ${import_chalk4.default.gray("--with-imports")}     Automatically wire imports into your i18n config file
+         ${import_chalk4.default.gray("--dry-run")}          Preview what would be generated without writing files
 
        Then translate the values in the generated files, or wire up a translation API.
        Add each new language to your i18n.ts resources object:
 
-       ${import_chalk3.default.cyan(`import fr from './${import_path10.default.relative(appRoot, localeFilePath).replace("en", "fr").replace(/\\/g, "/")}'
+       ${import_chalk4.default.cyan(`import fr from './${import_path11.default.relative(appRoot, localeFilePath).replace("en", "fr").replace(/\\/g, "/")}'
 
   i18n.init({
     resources: {
@@ -6246,16 +6505,16 @@ async function replace(options) {
     ...
   })`)}
 
-  5. Copy ${import_path10.default.relative(appRoot, localeFilePath)} as a reference for manual translations.
+  5. Copy ${import_path11.default.relative(appRoot, localeFilePath)} as a reference for manual translations.
 `);
 }
-var import_path10, import_chalk3, import_ora2;
+var import_path11, import_chalk4, import_ora2;
 var init_replace = __esm({
   "src/commands/replace.ts"() {
     "use strict";
     init_cjs_shims();
-    import_path10 = __toESM(require("path"));
-    import_chalk3 = __toESM(require("chalk"));
+    import_path11 = __toESM(require("path"));
+    import_chalk4 = __toESM(require("chalk"));
     import_ora2 = __toESM(require("ora"));
     init_logger();
     init_config2();
@@ -6274,7 +6533,7 @@ __export(revert_exports, {
   revert: () => revert
 });
 async function revert(options) {
-  const appRoot = import_path11.default.resolve(options.path);
+  const appRoot = import_path12.default.resolve(options.path);
   const isClean = options.clean ?? false;
   logger.section(`rai \u2014 ${isClean ? "Clean backups" : "Revert"}`);
   const backupFiles = await findBackupFiles(appRoot);
@@ -6289,7 +6548,7 @@ async function revert(options) {
   logger.info(`  Found ${backupFiles.length} backup file(s):`);
   backupFiles.forEach((f) => {
     const originalPath = f.slice(0, -".i18nbak".length);
-    logger.dim(`    ${import_path11.default.relative(appRoot, originalPath)}`);
+    logger.dim(`    ${import_path12.default.relative(appRoot, originalPath)}`);
   });
   logger.newline();
   if (isClean) {
@@ -6307,8 +6566,8 @@ async function revert(options) {
     logger.info(`
   Your source files were not changed.
   Ready to commit:
-    ${import_chalk4.default.cyan("git add .")}
-    ${import_chalk4.default.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
+    ${import_chalk5.default.cyan("git add .")}
+    ${import_chalk5.default.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
     `);
   } else {
     logger.warn(
@@ -6332,13 +6591,13 @@ async function revert(options) {
     );
   }
 }
-var import_path11, import_chalk4;
+var import_path12, import_chalk5;
 var init_revert = __esm({
   "src/commands/revert.ts"() {
     "use strict";
     init_cjs_shims();
-    import_path11 = __toESM(require("path"));
-    import_chalk4 = __toESM(require("chalk"));
+    import_path12 = __toESM(require("path"));
+    import_chalk5 = __toESM(require("chalk"));
     init_logger();
     init_backup();
     init_prompt();
@@ -6347,14 +6606,14 @@ var init_revert = __esm({
 
 // src/utils/locale-path.ts
 function resolveLocaleFilePath2(config, langCode) {
-  return config.localeFileName ? import_path12.default.join(config.localesDir, langCode, `${config.localeFileName}.json`) : import_path12.default.join(config.localesDir, `${langCode}.json`);
+  return config.localeFileName ? import_path13.default.join(config.localesDir, langCode, `${config.localeFileName}.json`) : import_path13.default.join(config.localesDir, `${langCode}.json`);
 }
-var import_path12;
+var import_path13;
 var init_locale_path = __esm({
   "src/utils/locale-path.ts"() {
     "use strict";
     init_cjs_shims();
-    import_path12 = __toESM(require("path"));
+    import_path13 = __toESM(require("path"));
   }
 });
 
@@ -6392,14 +6651,14 @@ var init_flatten_keys = __esm({
 
 // src/commands/wire-i18n-imports.ts
 function wireLocaleImports(i18nFilePath, localesDir, localeFileName, languages) {
-  if (!import_fs12.default.existsSync(i18nFilePath)) {
+  if (!import_fs14.default.existsSync(i18nFilePath)) {
     console.warn(
       `\u26A0 ${i18nFilePath} not found \u2014 skipping import wiring.
   Create it first (see \`rai scan\` output for the template), then re-run with --with-imports.`
     );
     return [];
   }
-  const source = import_fs12.default.readFileSync(i18nFilePath, "utf-8");
+  const source = import_fs14.default.readFileSync(i18nFilePath, "utf-8");
   const ast = recast2.parse(source, {
     parser: {
       parse: (src) => (0, import_parser.parse)(src, { sourceType: "module", plugins: ["typescript"] })
@@ -6408,12 +6667,12 @@ function wireLocaleImports(i18nFilePath, localesDir, localeFileName, languages) 
   const b2 = recast2.types.builders;
   const existingImportSources = /* @__PURE__ */ new Set();
   (0, import_ast_types2.visit)(ast, {
-    visitImportDeclaration(path15) {
-      existingImportSources.add(path15.node.source.value);
-      this.traverse(path15);
+    visitImportDeclaration(path16) {
+      existingImportSources.add(path16.node.source.value);
+      this.traverse(path16);
     }
   });
-  const i18nDir = import_path13.default.dirname(i18nFilePath);
+  const i18nDir = import_path14.default.dirname(i18nFilePath);
   const addedLangs = [];
   const newImportNodes = [];
   for (const lang of languages) {
@@ -6421,7 +6680,7 @@ function wireLocaleImports(i18nFilePath, localesDir, localeFileName, languages) 
       { localesDir, localeFileName },
       lang
     );
-    let importPath = "./" + import_path13.default.relative(i18nDir, localeFilePath).replace(/\\/g, "/");
+    let importPath = "./" + import_path14.default.relative(i18nDir, localeFilePath).replace(/\\/g, "/");
     if (!importPath.startsWith(".")) importPath = "./" + importPath;
     if (existingImportSources.has(importPath)) continue;
     newImportNodes.push(
@@ -6442,12 +6701,12 @@ function wireLocaleImports(i18nFilePath, localesDir, localeFileName, languages) 
   });
   programBody.splice(lastImportIndex + 1, 0, ...newImportNodes);
   (0, import_ast_types2.visit)(ast, {
-    visitObjectProperty(path15) {
-      const key = path15.node.key;
+    visitObjectProperty(path16) {
+      const key = path16.node.key;
       const keyName = key.type === "Identifier" ? key.name : key.value;
-      if (keyName === "resources" && path15.node.value.type === "ObjectExpression") {
+      if (keyName === "resources" && path16.node.value.type === "ObjectExpression") {
         for (const lang of addedLangs) {
-          path15.node.value.properties.push(
+          path16.node.value.properties.push(
             b2.objectProperty(
               b2.identifier(lang),
               b2.objectExpression([
@@ -6460,20 +6719,20 @@ function wireLocaleImports(i18nFilePath, localesDir, localeFileName, languages) 
           );
         }
       }
-      this.traverse(path15);
+      this.traverse(path16);
     }
   });
   const output = recast2.print(ast).code;
-  import_fs12.default.writeFileSync(i18nFilePath, output);
+  import_fs14.default.writeFileSync(i18nFilePath, output);
   return addedLangs;
 }
-var import_fs12, import_path13, import_parser, import_ast_types2, recast2;
+var import_fs14, import_path14, import_parser, import_ast_types2, recast2;
 var init_wire_i18n_imports = __esm({
   "src/commands/wire-i18n-imports.ts"() {
     "use strict";
     init_cjs_shims();
-    import_fs12 = __toESM(require("fs"));
-    import_path13 = __toESM(require("path"));
+    import_fs14 = __toESM(require("fs"));
+    import_path14 = __toESM(require("path"));
     import_parser = require("@babel/parser");
     import_ast_types2 = __toESM(require_main());
     recast2 = __toESM(require("recast"));
@@ -6509,12 +6768,12 @@ __export(locales_generate_exports, {
   runLocalesGenerate: () => runLocalesGenerate
 });
 function generateLocaleFile2(defaultContent, targetFilePath, locale, force, dryRun) {
-  const fileExists = import_fs13.default.existsSync(targetFilePath);
+  const fileExists = import_fs15.default.existsSync(targetFilePath);
   const isNew = !fileExists || force;
   if (isNew) {
     if (!dryRun) {
-      import_fs13.default.mkdirSync(import_path14.default.dirname(targetFilePath), { recursive: true });
-      import_fs13.default.writeFileSync(
+      import_fs15.default.mkdirSync(import_path15.default.dirname(targetFilePath), { recursive: true });
+      import_fs15.default.writeFileSync(
         targetFilePath,
         JSON.stringify(defaultContent, null, 2) + "\n"
       );
@@ -6526,7 +6785,7 @@ function generateLocaleFile2(defaultContent, targetFilePath, locale, force, dryR
       keysAdded: Object.keys(flattenKeys(defaultContent))
     };
   }
-  const existingContent = JSON.parse(import_fs13.default.readFileSync(targetFilePath, "utf-8"));
+  const existingContent = JSON.parse(import_fs15.default.readFileSync(targetFilePath, "utf-8"));
   const defaultFlat = flattenKeys(defaultContent);
   const existingFlat = flattenKeys(existingContent);
   const keysAdded = [];
@@ -6537,7 +6796,7 @@ function generateLocaleFile2(defaultContent, targetFilePath, locale, force, dryR
     }
   }
   if (keysAdded.length > 0 && !dryRun) {
-    import_fs13.default.writeFileSync(
+    import_fs15.default.writeFileSync(
       targetFilePath,
       JSON.stringify(existingContent, null, 2) + "\n"
     );
@@ -6550,7 +6809,7 @@ function generateLocaleFile2(defaultContent, targetFilePath, locale, force, dryR
   };
 }
 async function runLocalesGenerate(options) {
-  const appRoot = import_path14.default.resolve(options.path);
+  const appRoot = import_path15.default.resolve(options.path);
   const config = await requireConfig(appRoot);
   const rawTargets = options.only ?? config.targetLanguages ?? [];
   if (rawTargets.length === 0) {
@@ -6590,7 +6849,7 @@ async function runLocalesGenerate(options) {
     process.exit(1);
   }
   const defaultFilePath = resolveLocaleFilePath2(config, config.defaultLanguage);
-  if (!import_fs13.default.existsSync(defaultFilePath)) {
+  if (!import_fs15.default.existsSync(defaultFilePath)) {
     logger.error(
       `Default locale file not found at:
   ${defaultFilePath}
@@ -6599,11 +6858,11 @@ async function runLocalesGenerate(options) {
     );
     process.exit(1);
   }
-  const defaultContent = JSON.parse(import_fs13.default.readFileSync(defaultFilePath, "utf-8"));
+  const defaultContent = JSON.parse(import_fs15.default.readFileSync(defaultFilePath, "utf-8"));
   const defaultKeyCount = Object.keys(flattenKeys(defaultContent)).length;
   if (options.force) {
     const existingTargets = targets.filter(
-      (lang) => import_fs13.default.existsSync(resolveLocaleFilePath2(config, lang))
+      (lang) => import_fs15.default.existsSync(resolveLocaleFilePath2(config, lang))
     );
     if (existingTargets.length > 0 && !options.yes) {
       const confirmed = await confirm(
@@ -6692,13 +6951,13 @@ async function runLocalesGenerate(options) {
   }
   logger.newline();
 }
-var import_fs13, import_path14;
+var import_fs15, import_path15;
 var init_locales_generate = __esm({
   "src/commands/locales-generate.ts"() {
     "use strict";
     init_cjs_shims();
-    import_fs13 = __toESM(require("fs"));
-    import_path14 = __toESM(require("path"));
+    import_fs15 = __toESM(require("fs"));
+    import_path15 = __toESM(require("path"));
     init_locale_path();
     init_flatten_keys();
     init_wire_i18n_imports();
@@ -6721,7 +6980,7 @@ var import_commander = require("commander");
 // package.json
 var package_default = {
   name: "react-auto-i18n",
-  version: "0.1.1",
+  version: "1.0.1",
   description: "Automatic i18n scanner and code transformer for React Native apps",
   main: "dist/index.js",
   types: "dist/index.d.ts",
@@ -6762,28 +7021,40 @@ var package_default = {
     url: "https://github.com/SiandjaRemy/react-auto-i18n/issues"
   },
   dependencies: {
-    "@babel/generator": "^8.0.0",
-    "@babel/parser": "^8.0.4",
-    "@babel/traverse": "^8.0.4",
-    "@babel/types": "^8.0.4",
-    "@inquirer/prompts": "^8.5.2",
+    "@babel/generator": "7.26.5",
+    "@babel/parser": "7.26.5",
+    "@babel/traverse": "7.26.5",
+    "@babel/types": "7.26.5",
+    "@inquirer/prompts": "5.5.0",
     chalk: "^4.1.2",
-    commander: "^15.0.0",
-    glob: "^13.0.6",
-    ignore: "^7.0.6",
-    jiti: "^2.7.0",
+    commander: "^12.0.0",
+    glob: "^10.0.0",
+    ignore: "^5.0.0",
+    jiti: "^2.0.0",
     ora: "^5.4.1",
-    recast: "^0.23.19"
+    recast: "^0.23.0"
   },
   devDependencies: {
     "@types/babel__core": "^7.20.5",
-    "@types/babel__generator": "^7.27.0",
-    "@types/babel__traverse": "^7.28.0",
-    "@types/node": "^26.1.1",
-    rimraf: "^6.1.3",
+    "@types/babel__generator": "^7.6.0",
+    "@types/babel__traverse": "^7.20.0",
+    "@types/node": "^20.0.0",
+    rimraf: "^5.0.0",
     "ts-node": "^10.9.2",
-    tsup: "^8.5.1",
-    typescript: "^7.0.2"
+    tsup: "^8.0.0",
+    typescript: "^5.0.0"
+  },
+  peerDependencies: {
+    i18next: ">=23.0.0",
+    "react-i18next": ">=14.0.0"
+  },
+  peerDependenciesMeta: {
+    i18next: {
+      optional: false
+    },
+    "react-i18next": {
+      optional: false
+    }
   }
 };
 

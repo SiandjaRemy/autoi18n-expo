@@ -22,9 +22,15 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var src_exports = {};
 __export(src_exports, {
   SUPPORTED_LANGUAGE_CODES: () => SUPPORTED_LANGUAGE_CODES,
-  SUPPORTED_LOCALES: () => SUPPORTED_LOCALES
+  SUPPORTED_LOCALES: () => SUPPORTED_LOCALES,
+  defineRaiConfig: () => defineRaiConfig
 });
 module.exports = __toCommonJS(src_exports);
+
+// src/utils/defineRaiConfig.ts
+function defineRaiConfig(config) {
+  return config;
+}
 
 // src/types/config.ts
 var SUPPORTED_LANGUAGE_CODES = [
@@ -205,6 +211,7 @@ var SUPPORTED_LOCALES = [
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   SUPPORTED_LANGUAGE_CODES,
-  SUPPORTED_LOCALES
+  SUPPORTED_LOCALES,
+  defineRaiConfig
 });
 //# sourceMappingURL=index.js.map

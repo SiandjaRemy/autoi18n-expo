@@ -287,7 +287,7 @@ function printNextSteps(
 
   1. Make sure ${i18nFilePath} is imported in your entry point (${entryPointFile}):
        ${chalk.cyan(`import '${i18nImportPath}'`)}
-       ${chalk.gray("This must be the first import in the file.")}
+       ${chalk.gray("This import should be as high as possible in the file.")}
 
   2. Review ${localeOutputPath}, then commit:
        ${chalk.cyan(`git add .`)}

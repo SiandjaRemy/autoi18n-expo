@@ -49,7 +49,7 @@ export function generateInitialI18nFile(
     return;
   }
 
-  const content = buildI18nFileContent(config.defaultLanguage, [], config);
+  const content = buildI18nFileContent("", [], config);
   writeFile(filePath, content);
   logger.success(`Generated ${config.i18nFilePath}`);
 }

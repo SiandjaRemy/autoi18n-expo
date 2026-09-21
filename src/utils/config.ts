@@ -60,16 +60,16 @@ export function getConfigPath(appRoot: string): string {
  *
  * Supports two config styles:
  *
- * Style A — defineConfig (recommended):
- *   import { defineConfig } from 'react-auto-i18n'
- *   export default defineConfig({ defaultLanguage: 'en' })
+ * Style A — defineRaiConfig (recommended):
+ *   import { defineRaiConfig } from 'react-auto-i18n'
+ *   export default defineRaiConfig({ defaultLanguage: 'en' })
  *
  * Style B — plain object with satisfies (legacy, still supported):
  *   import type { RaiConfig } from 'react-auto-i18n'
  *   export default { defaultLanguage: 'en' } satisfies Partial<RaiConfig>
  *
  * Both produce the same runtime shape: { default: Partial<RaiConfig> }.
- * defineConfig() returns its argument unchanged, so mod.default is
+ * defineRaiConfig() returns its argument unchanged, so mod.default is
  * always a plain Partial<RaiConfig> object in both cases.
  *
  * After loading, user values are merged on top of DEFAULT_CONFIG so
@@ -97,8 +97,8 @@ export async function loadConfig(appRoot: string): Promise<RaiConfig | null> {
      * Handle both ESM (export default) and CJS (module.exports =) shapes.
      * jiti normalises most cases but we guard both for safety.
      *
-     * With defineConfig:
-     *   mod.default = defineConfig({ ... }) = { ... }  (plain object)
+     * With defineRaiConfig:
+     *   mod.default = defineRaiConfig({ ... }) = { ... }  (plain object)
      *
      * With satisfies:
      *   mod.default = { ... } satisfies Partial<RaiConfig> = { ... }

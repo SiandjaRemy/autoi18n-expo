@@ -74,6 +74,14 @@ export interface RaiConfig {
      */
     maxKeyLength: number;
     /**
+     * When true, adds 'use client' directive to files modified by rai replace.
+     * Required for Next.js App Router since useTranslation() uses React context.
+     * Leave false for React Native, Expo, or Next.js Pages Router projects.
+     *
+     * @default false
+     */
+    addUseClientDirective: boolean;
+    /**
      * Whether to detect and extract strings passed to Alert.alert().
      *
      * Alert.alert('Title', 'This message needs translation')
@@ -135,6 +143,6 @@ export interface RaiConfig {
      *
      * @default 'src/i18n.ts'
      */
-    i18nFilePath: "src/i18n.ts";
+    i18nFilePath: string | null;
 }
 //# sourceMappingURL=config.d.ts.map

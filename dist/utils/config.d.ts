@@ -15,14 +15,28 @@ export declare const DEFAULT_CONFIG: RaiConfig;
  */
 export declare function getConfigPath(appRoot: string): string;
 /**
- * Loads and parses the user's rai.config.ts file.
+ * Loads and parses the user's rai.config.ts file using jiti.
  *
- * Uses jiti to execute the TypeScript config file directly at runtime
- * without requiring a separate compile step. This is the same approach
- * used by Tailwind CSS, Nuxt, and Vite for their config files.
+ * jiti executes TypeScript config files directly at runtime without
+ * a separate compile step — the same approach used by Tailwind, Nuxt,
+ * and Vite for their config files.
  *
- * After loading, the user's values are merged on top of DEFAULT_CONFIG
- * so any missing fields are filled in automatically.
+ * Supports two config styles:
+ *
+ * Style A — defineRaiConfig (recommended):
+ *   import { defineRaiConfig } from 'react-auto-i18n'
+ *   export default defineRaiConfig({ defaultLanguage: 'en' })
+ *
+ * Style B — plain object with satisfies (legacy, still supported):
+ *   import type { RaiConfig } from 'react-auto-i18n'
+ *   export default { defaultLanguage: 'en' } satisfies Partial<RaiConfig>
+ *
+ * Both produce the same runtime shape: { default: Partial<RaiConfig> }.
+ * defineRaiConfig() returns its argument unchanged, so mod.default is
+ * always a plain Partial<RaiConfig> object in both cases.
+ *
+ * After loading, user values are merged on top of DEFAULT_CONFIG so
+ * any omitted field is automatically filled in with its default.
  *
  * Returns null if the config file does not exist.
  *

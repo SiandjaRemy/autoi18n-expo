@@ -425,7 +425,7 @@ export default i18n;
 For Expo Router (`app/_layout.tsx`):
 
 ```ts
-import "../src/i18n"; // must be the first import
+import "../src/i18n"; // this import should be as high as possible
 ```
 
 For standard React Native (`App.tsx`):

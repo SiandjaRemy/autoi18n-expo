@@ -77,7 +77,7 @@ export interface ExtractedString {
      * 'throw'           → throw new Error('Message')
      * 'call'            → toast.show('Message')
      */
-    sourceType: "jsx-text" | "jsx-expression" | "jsx-attribute" | "alert" | "throw" | "call";
+    sourceType: "jsx-text" | "jsx-expression" | "jsx-attribute" | "alert" | "throw" | "call" | "return";
     /**
      * The name of the JSX prop this string was found in.
      * Only set when sourceType is 'jsx-attribute'.

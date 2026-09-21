@@ -200,45 +200,46 @@ export async function replace(options: ReplaceOptions): Promise<void> {
 
   logger.section("Next steps");
   logger.info(`
-  1. Run your app and verify everything works:
-       npx expo start
+  ${chalk.bold("Next steps")}
 
-  2. If something looks wrong, revert your changes:
+  1. ${chalk.bold("Verify the app")}
+       Run the app and check screens, alerts, and any helpers that use i18n.
+       ${chalk.cyan("npx expo start")}
+       ${chalk.gray("# or your usual start command")}
+
+  2. ${chalk.bold("If something looks wrong")}
+       Restore files from backups:
        ${chalk.cyan("rai revert")}
-       Restores all files to their state before replace was run.
 
-       Or using git:
+       Or discard with git (only if you committed before replace):
        ${chalk.cyan("git checkout .")}
-       Discards all uncommitted changes. This is why we asked you to commit before running replace.
 
-  3. If everything looks good, clean up backups and commit:
+  3. ${chalk.bold("If everything looks good")}
+       Remove backup files, then commit:
        ${chalk.cyan("rai revert --clean")}
        ${chalk.cyan("git add .")}
        ${chalk.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
 
-  4. To add translations for other languages:
-       ${chalk.cyan(`rai locales-generate --only fr,es`)}
-       Generates locale files for the specified languages based on your default locale.
+  4. ${chalk.bold("Add other languages")}
+       Prefer generating locales and wiring imports in one step:
+       ${chalk.cyan("rai locales-generate --only fr,es --with-imports")}
 
-       Options:
-         ${chalk.gray("--only <langs>")}     Comma-separated language codes to generate (e.g. fr,es,ar)
-         ${chalk.gray("--force")}            Overwrite existing locale files
-         ${chalk.gray("--with-imports")}     Automatically wire imports into your i18n config file
-         ${chalk.gray("--dry-run")}          Preview what would be generated without writing files
+       That will:
+         • create locale files from your default language
+         • add the matching imports / resources entries in your i18n file
 
-       Then translate the values in the generated files, or wire up a translation API.
-       Add each new language to your i18n.ts resources object:
+       Useful flags:
+         ${chalk.gray("--only fr,es,ar")}   languages to generate
+         ${chalk.gray("--with-imports")}  update i18n config automatically ${chalk.green("(recommended)")}
+         ${chalk.gray("--force")}         overwrite existing locale files
+         ${chalk.gray("--dry-run")}       preview without writing
 
-       ${chalk.cyan(`import fr from './${path.relative(appRoot, localeFilePath).replace("en", "fr").replace(/\\/g, "/")}'
+       Then translate the values in the new JSON files (keys stay the same).
+       Switch language at runtime with:
+       ${chalk.cyan('i18n.changeLanguage("fr")')}
 
-  i18n.init({
-    resources: {
-      en: { translation: en },
-      fr: { translation: fr },  // ← add this
-    },
-    ...
-  })`)}
-
-  5. Copy ${path.relative(appRoot, localeFilePath)} as a reference for manual translations.
+  5. ${chalk.bold("Reference")}
+       Default locale file:
+       ${chalk.cyan(path.relative(appRoot, localeFilePath).replace(/\\/g, "/"))}
 `);
 }

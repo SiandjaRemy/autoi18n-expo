@@ -105,7 +105,8 @@ export interface ExtractedString {
     | "jsx-attribute"
     | "alert"
     | "throw"
-    | "call";
+    | "call"
+    | "return";
 
   /**
    * The name of the JSX prop this string was found in.
@@ -378,6 +379,75 @@ function isExtractable(value: string): boolean {
 }
 
 /**
+ * Stricter check for strings found in return statements.
+ * JSX / Alert / throw already have high signal; returns do not.
+ */
+function isLikelyUiCopy(value: string): boolean {
+  const trimmed = value.trim();
+
+  // Must still pass the general rules
+  if (!isExtractable(trimmed)) return false;
+
+  // Single token with no spaces → usually a code value ("light", "pending")
+  // Allow a small set of real UI labels
+  if (!/\s/.test(trimmed)) {
+    const UI_SINGLE_WORDS = new Set([
+      "submit",
+      "cancel",
+      "confirm",
+      "delete",
+      "save",
+      "close",
+      "continue",
+      "back",
+      "next",
+      "done",
+      "ok",
+      "yes",
+      "no",
+      "loading",
+      "error",
+      "success",
+      "retry",
+      "search",
+    ]);
+    if (!UI_SINGLE_WORDS.has(trimmed.toLowerCase())) {
+      return false;
+    }
+  }
+
+  // Known technical tokens (extend as needed)
+  const TECHNICAL = new Set([
+    "light",
+    "dark",
+    "system",
+    "auto",
+    "pending",
+    "completed",
+    "failed",
+    "active",
+    "inactive",
+    "credit",
+    "debit",
+    "row",
+    "column",
+    "center",
+    "left",
+    "right",
+  ]);
+  if (TECHNICAL.has(trimmed.toLowerCase())) return false;
+
+  return true;
+}
+
+/** true if every interpolation is a simple identifier: ${name} */
+function templateHasOnlyIdentifierExpressions(
+  node: t.TemplateLiteral,
+): boolean {
+  return node.expressions.every((expr) => t.isIdentifier(expr));
+}
+
+/**
  * Heuristic to detect Tailwind/NativeWind className strings.
  *
  * A string is treated as a CSS class string if more than half of its
@@ -520,13 +590,16 @@ function extractFromExpression(
   filePath: string,
   maxKeyLen: number,
   sourceType: ExtractedString["sourceType"],
+  strictUiCopy = false,
 ): void {
   if (!expr || t.isJSXEmptyExpression(expr)) return;
 
+  const passes = (value: string) =>
+    strictUiCopy ? isLikelyUiCopy(value) : isExtractable(value);
+
   // ── String literal ─────────────────────────────────────────────────────────
   if (t.isStringLiteral(expr)) {
-    if (!isExtractable(expr.value)) return;
-
+    if (!passes(expr.value)) return; // ← was isExtractable(expr.value)
     const { key, fullKey } = buildFullKey(namespace, expr.value, maxKeyLen);
 
     results.push({
@@ -543,33 +616,27 @@ function extractFromExpression(
   }
 
   // ── Template literal ───────────────────────────────────────────────────────
+  // ── Template literal ───────────────────────────────────────────────────────
   if (t.isTemplateLiteral(expr)) {
-    const { text, params } = processTemplateLiteral(expr);
-    if (!isExtractable(text)) return;
+    if (templateHasOnlyIdentifierExpressions(expr)) {
+      const { text, params } = processTemplateLiteral(expr);
+      if (!isExtractable(text)) return;
 
-    const { key, fullKey } = buildFullKey(namespace, text, maxKeyLen);
+      const { key, fullKey } = buildFullKey(namespace, text, maxKeyLen);
+      results.push({
+        filePath,
+        namespace,
+        key,
+        fullKey,
+        originalText: text,
+        translationValue: text,
+        params,
+        sourceType,
+      });
+      return;
+    }
 
-    results.push({
-      filePath,
-      namespace,
-      key,
-      fullKey,
-      originalText: text,
-      translationValue: text,
-      params,
-      sourceType,
-    });
-
-    /**
-     * Also recurse INTO the template expressions.
-     * Why? Because a template expression can itself contain strings:
-     *
-     *   `Count: ${count} ${count === 1 ? 'item' : 'items'}`
-     *                         ↑ ternary with string branches
-     *
-     * The strings "item" and "items" inside the ternary are also
-     * translatable and would be missed without this recursion.
-     */
+    // e.g. `${sign}$${abs} ${type === "credit" ? "received" : "sent"}`
     for (const subExpr of expr.expressions) {
       extractFromExpression(
         subExpr as t.Expression,
@@ -595,6 +662,7 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     extractFromExpression(
       expr.alternate,
@@ -603,6 +671,7 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     return;
   }
@@ -618,6 +687,7 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     extractFromExpression(
       expr.right,
@@ -626,12 +696,62 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     return;
   }
 
   // Other expression types (identifiers, member access, function calls, etc.)
   // are not translatable strings on their own — stop recursing.
+}
+
+/**
+ * Walks the 3rd argument of Alert.alert (buttons array) and extracts
+ * every `text` property that holds user-visible copy.
+ *
+ * Handles:
+ *   [{ text: "Cancel" }, { text: "OK" }]
+ *   [{ text: condition ? "Yes" : "No" }]
+ *
+ * Ignores:
+ *   style, onPress, spreads, non-object elements
+ */
+function extractAlertButtonTexts(
+  buttonsArg: t.Node,
+  results: ExtractedString[],
+  namespace: string,
+  filePath: string,
+  maxKeyLen: number,
+): void {
+  if (!t.isArrayExpression(buttonsArg)) return;
+
+  for (const element of buttonsArg.elements) {
+    if (!element || !t.isObjectExpression(element)) continue;
+
+    for (const prop of element.properties) {
+      // Skip spreads: { ...btn }
+      if (!t.isObjectProperty(prop) && !t.isProperty(prop)) continue;
+
+      const key = prop.key;
+      const propName = t.isIdentifier(key)
+        ? key.name
+        : t.isStringLiteral(key)
+          ? key.value
+          : null;
+
+      if (propName !== "text") continue;
+      if (prop.computed) continue; // text: dynamicKey — skip
+
+      extractFromExpression(
+        prop.value as t.Expression,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        "alert",
+      );
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -783,7 +903,6 @@ export function extractStringsFromFile(
     //    JSXText includes all whitespace and newlines between tags,
     //    so we trim and check extractability carefully.
     JSXText(nodePath) {
-
       /**
        * Normalize JSX whitespace before doing anything else.
        *
@@ -897,14 +1016,34 @@ export function extractStringsFromFile(
 
       // Alert detection
       if (config.detectAlerts && calleeName === "Alert.alert") {
-        extractStringArgs(
-          nodePath.node.arguments,
-          results,
-          namespace,
-          filePath,
-          maxKeyLen,
-          "alert",
-        );
+        const args = nodePath.node.arguments;
+
+        // Title (arg 0) and message (arg 1)
+        for (let i = 0; i < Math.min(args.length, 2); i++) {
+          const arg = args[i];
+          // Skip spreads / non-expressions
+          if (!arg || arg.type === "SpreadElement") continue;
+
+          extractFromExpression(
+            arg as t.Expression,
+            results,
+            namespace,
+            filePath,
+            maxKeyLen,
+            "alert",
+          );
+        }
+
+        // Buttons array (arg 2): [{ text: "Cancel" }, ...]
+        if (args.length >= 3) {
+          extractAlertButtonTexts(
+            args[2],
+            results,
+            namespace,
+            filePath,
+            maxKeyLen,
+          );
+        }
         return;
       }
 
@@ -969,6 +1108,18 @@ export function extractStringsFromFile(
           sourceType: "throw",
         });
       }
+    },
+
+    ReturnStatement(nodePath) {
+      extractFromExpression(
+        nodePath.node.argument as t.Expression,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        "return", // or a new sourceType e.g. "return"
+        true, // ← strictUiCopy
+      );
     },
   });
 

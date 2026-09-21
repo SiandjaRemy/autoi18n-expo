@@ -8,6 +8,7 @@
  * Since dts is disabled in tsup, the type declarations won't be auto-generated
  * in dist/. We handle this with a manual declaration file (see Fix 2).
  */
+export { defineRaiConfig } from "./utils/defineRaiConfig";
 export type { RaiConfig, LanguageCode } from "./types/config";
 export { SUPPORTED_LANGUAGE_CODES, SUPPORTED_LOCALES } from "./types/config";
 //# sourceMappingURL=index.d.ts.map

@@ -9,6 +9,8 @@ import { normalizeJSXWhitespace } from "../utils/normalize";
 import { requireConfig } from "../utils/config";
 import { RaiConfig } from "../types/config";
 
+let fileNeedsI18nImport = false;
+
 export interface TransformResult {
   filePath: string;
   modified: boolean;
@@ -96,6 +98,32 @@ function buildTCallWithParams(key: string, params: string[]): any {
     b.literal(key),
     b.objectExpression(props),
   ]);
+}
+
+function buildI18nTCall(key: string): any {
+  return b.callExpression(
+    b.memberExpression(b.identifier("i18n"), b.identifier("t")),
+    [b.literal(key)],
+  );
+}
+
+function buildI18nTCallWithParams(key: string, params: string[]): any {
+  const props = params.map((param) => {
+    const prop = b.property("init", b.identifier(param), b.identifier(param));
+    prop.shorthand = true;
+    return prop;
+  });
+  return b.callExpression(
+    b.memberExpression(b.identifier("i18n"), b.identifier("t")),
+    [b.literal(key), b.objectExpression(props)],
+  );
+}
+
+function buildI18nImport(importPath: string): any {
+  return b.importDeclaration(
+    [b.importDefaultSpecifier(b.identifier("i18n"))],
+    b.literal(importPath),
+  );
 }
 
 function buildJSXExpression(call: any): any {
@@ -230,29 +258,75 @@ function findExtractedTemplate(
 // Import helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function hasImport(programBody: any[], source: string, name: string): boolean {
+function resolveI18nImportPath(
+  filePath: string,
+  appRoot: string,
+  config: RaiConfig,
+): string {
+  const i18nAbs = path.join(appRoot, config.i18nFilePath ?? "src/i18n.ts");
+  let rel = path.relative(path.dirname(filePath), i18nAbs).replace(/\\/g, "/");
+  // strip extension for TS-style imports
+  rel = rel.replace(/\.(ts|tsx|js|jsx)$/, "");
+  if (!rel.startsWith(".")) rel = `./${rel}`;
+  return rel;
+}
+
+/**
+ * True if the file already imports a binding named `i18n`
+ * (any path: @/i18n, ../i18n, src/i18n, etc.).
+ */
+function hasI18nBinding(programBody: any[]): boolean {
+  for (const node of programBody) {
+    if (node.type !== "ImportDeclaration") continue;
+
+    for (const spec of node.specifiers ?? []) {
+      // import i18n from '...'
+      if (
+        spec.type === "ImportDefaultSpecifier" &&
+        spec.local?.name === "i18n"
+      ) {
+        return true;
+      }
+      // import * as i18n from '...'
+      if (
+        spec.type === "ImportNamespaceSpecifier" &&
+        spec.local?.name === "i18n"
+      ) {
+        return true;
+      }
+      // import { default as i18n } from '...'  (rare)
+      if (spec.type === "ImportSpecifier" && spec.local?.name === "i18n") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasDefaultImport(
+  programBody: any[],
+  source: string,
+  localName: string,
+): boolean {
   return programBody.some(
     (node) =>
       node.type === "ImportDeclaration" &&
       node.source.value === source &&
       node.specifiers?.some(
         (spec: any) =>
-          spec.type === "ImportSpecifier" && spec.imported?.name === name,
+          spec.type === "ImportDefaultSpecifier" &&
+          spec.local?.name === localName,
       ),
   );
 }
 
-/**
- * Inserts an import declaration after the last existing import in the file.
- * Does nothing if an import from the same source with the same name exists.
- */
-function addImport(
+function addDefaultImport(
   programBody: any[],
   source: string,
-  name: string,
+  localName: string,
   buildFn: () => any,
 ): void {
-  if (hasImport(programBody, source, name)) return;
+  if (hasDefaultImport(programBody, source, localName)) return;
 
   let lastImportIndex = -1;
   for (let i = 0; i < programBody.length; i++) {
@@ -260,11 +334,15 @@ function addImport(
   }
 
   const node = buildFn();
-
   if (lastImportIndex >= 0) {
     programBody.splice(lastImportIndex + 1, 0, node);
   } else {
-    programBody.unshift(node);
+    // After 'use client' if present
+    if (hasUseClientDirective(programBody)) {
+      programBody.splice(1, 0, node);
+    } else {
+      programBody.unshift(node);
+    }
   }
 }
 
@@ -369,13 +447,35 @@ function alreadyHasTParam(node: any): boolean {
 // Expression replacement
 // ─────────────────────────────────────────────────────────────────────────────
 
+type ReplaceOptions = {
+  /** Module-level helpers: i18n.t(...). Components / nested helpers: t(...) */
+  useI18nInstance?: boolean;
+};
+
+function buildCallForExtracted(
+  extracted: ExtractedString,
+  useI18nInstance: boolean,
+): any {
+  if (useI18nInstance) {
+    return extracted.params.length > 0
+      ? buildI18nTCallWithParams(extracted.fullKey, extracted.params)
+      : buildI18nTCall(extracted.fullKey);
+  }
+  return extracted.params.length > 0
+    ? buildTCallWithParams(extracted.fullKey, extracted.params)
+    : buildTCall(extracted.fullKey);
+}
+
 function replaceStringNode(
   node: any,
   filePath: string,
   fileStrings: ExtractedString[],
   sourceType: ExtractedString["sourceType"],
+  options: ReplaceOptions = {},
 ): [any, number] {
   if (!node) return [node, 0];
+
+  const useI18n = options.useI18nInstance === true;
 
   if (node.type === "StringLiteral" || node.type === "Literal") {
     const value = node.value;
@@ -384,24 +484,36 @@ function replaceStringNode(
     const extracted = findExtracted(value, filePath, fileStrings, sourceType);
     if (!extracted) return [node, 0];
 
-    const call =
-      extracted.params.length > 0
-        ? buildTCallWithParams(extracted.fullKey, extracted.params)
-        : buildTCall(extracted.fullKey);
-
-    return [call, 1];
+    return [buildCallForExtracted(extracted, useI18n), 1];
   }
 
   if (node.type === "TemplateLiteral") {
-    const extracted = findExtractedTemplate(node, filePath, fileStrings);
-    if (!extracted) return [node, 0];
+    const onlyIds = (node.expressions ?? []).every(
+      (expr: any) => expr.type === "Identifier",
+    );
 
-    const call =
-      extracted.params.length > 0
-        ? buildTCallWithParams(extracted.fullKey, extracted.params)
-        : buildTCall(extracted.fullKey);
+    if (onlyIds) {
+      const extracted = findExtractedTemplate(node, filePath, fileStrings);
+      if (!extracted) return [node, 0];
+      return [buildCallForExtracted(extracted, useI18n), 1];
+    }
 
-    return [call, 1];
+    // Option A: keep template, replace string leaves inside expressions
+    let count = 0;
+    for (let i = 0; i < node.expressions.length; i++) {
+      const [newExpr, c] = replaceStringNode(
+        node.expressions[i],
+        filePath,
+        fileStrings,
+        sourceType,
+        options,
+      );
+      if (c > 0) {
+        node.expressions[i] = newExpr;
+        count += c;
+      }
+    }
+    return [node, count];
   }
 
   if (node.type === "ConditionalExpression") {
@@ -411,6 +523,7 @@ function replaceStringNode(
       filePath,
       fileStrings,
       sourceType,
+      options,
     );
     if (c1 > 0) {
       node.consequent = newConsequent;
@@ -422,6 +535,7 @@ function replaceStringNode(
       filePath,
       fileStrings,
       sourceType,
+      options,
     );
     if (c2 > 0) {
       node.alternate = newAlternate;
@@ -438,6 +552,7 @@ function replaceStringNode(
       filePath,
       fileStrings,
       sourceType,
+      options,
     );
     if (c1 > 0) {
       node.left = newLeft;
@@ -449,6 +564,7 @@ function replaceStringNode(
       filePath,
       fileStrings,
       sourceType,
+      options,
     );
     if (c2 > 0) {
       node.right = newRight;
@@ -459,6 +575,69 @@ function replaceStringNode(
   }
 
   return [node, 0];
+}
+
+/**
+ * Rewrites `text: "..."` on an Alert button object.
+ * Leaves style / onPress / etc. untouched.
+ */
+function replaceAlertButtonObject(
+  obj: any,
+  filePath: string,
+  fileStrings: ExtractedString[],
+): number {
+  if (obj?.type !== "ObjectExpression") return 0;
+
+  let count = 0;
+
+  for (const prop of obj.properties ?? []) {
+    if (prop.type !== "ObjectProperty" && prop.type !== "Property") continue;
+    if (prop.computed) continue;
+
+    const keyName =
+      prop.key?.type === "Identifier"
+        ? prop.key.name
+        : prop.key?.type === "StringLiteral" || prop.key?.type === "Literal"
+          ? prop.key.value
+          : null;
+
+    if (keyName !== "text") continue;
+
+    const [newValue, c] = replaceStringNode(
+      prop.value,
+      filePath,
+      fileStrings,
+      "alert",
+      { useI18nInstance: false },
+    );
+
+    if (c > 0) {
+      prop.value = newValue;
+      count += c;
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Rewrites the 3rd argument of Alert.alert: [{ text: "..." }, ...]
+ */
+function replaceAlertButtonsArg(
+  arg: any,
+  filePath: string,
+  fileStrings: ExtractedString[],
+): number {
+  if (arg?.type !== "ArrayExpression") return 0;
+
+  let count = 0;
+  for (const el of arg.elements ?? []) {
+    if (!el) continue;
+    if (el.type === "ObjectExpression") {
+      count += replaceAlertButtonObject(el, filePath, fileStrings);
+    }
+  }
+  return count;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -729,33 +908,56 @@ export function transformFile(
         calleeName = `${(callee.object as any).name}.${(callee.property as any).name}`;
       }
 
-      if (calleeName) {
-        const isAlert = calleeName === "Alert.alert";
-        const isCustom = fileStrings.some((s) => s.sourceType === "call");
+      // ── Alert.alert ──────────────────────────────────────────────────────────
+      if (calleeName === "Alert.alert") {
+        args.forEach((arg: any, index: number) => {
+          if (!arg || arg.type === "SpreadElement") return;
 
-        if (isAlert || isCustom) {
-          const sourceType: ExtractedString["sourceType"] = isAlert
-            ? "alert"
-            : "call";
-
-          args.forEach((arg: any, index: number) => {
-            const isStr =
-              arg.type === "StringLiteral" || arg.type === "Literal";
-            if (!isStr || typeof arg.value !== "string") return;
-
-            const extracted = findExtracted(
-              arg.value,
+          // Title (0) and message (1): literals, templates, ternaries, logicals
+          if (index === 0 || index === 1) {
+            const [newArg, count] = replaceStringNode(
+              arg,
               filePath,
               fileStrings,
-              sourceType,
+              "alert",
+              { useI18nInstance: false },
             );
-            if (!extracted) return;
+            if (count > 0) {
+              nodePath.node.arguments[index] = newArg;
+              totalReplacements += count;
+            }
+            return;
+          }
 
-            nodePath.node.arguments[index] = buildTCall(extracted.fullKey);
-            totalReplacements++;
-          });
-        }
+          // Buttons array (2)
+          if (index === 2) {
+            totalReplacements += replaceAlertButtonsArg(
+              arg,
+              filePath,
+              fileStrings,
+            );
+          }
+        });
       }
+      // ── customDetectCalls ────────────────────────────────────────────────────
+      else if (calleeName && fileStrings.some((s) => s.sourceType === "call")) {
+        args.forEach((arg: any, index: number) => {
+          if (!arg || arg.type === "SpreadElement") return;
+
+          const [newArg, count] = replaceStringNode(
+            arg,
+            filePath,
+            fileStrings,
+            "call",
+            { useI18nInstance: false },
+          );
+          if (count > 0) {
+            nodePath.node.arguments[index] = newArg;
+            totalReplacements += count;
+          }
+        });
+      }
+
       this.traverse(nodePath);
     },
 
@@ -782,6 +984,37 @@ export function transformFile(
           totalReplacements++;
         });
       }
+      this.traverse(nodePath);
+    },
+
+    // ── Return statements (utils / helpers) ───────────────────────────────────
+    visitReturnStatement(nodePath) {
+      const arg = nodePath.node.argument;
+      if (!arg) return this.traverse(nodePath);
+
+      /**
+       * Nested inside a React component → use t from useTranslation (closure).
+       * Module-level helper → use i18n.t and import the singleton.
+       */
+      const insideComponent = isNestedInsideComponent(nodePath);
+      const useI18nInstance = !insideComponent;
+
+      const [newArg, count] = replaceStringNode(
+        arg,
+        filePath,
+        fileStrings,
+        "return", // must match scanner sourceType for returns
+        { useI18nInstance },
+      );
+
+      if (count > 0) {
+        nodePath.node.argument = newArg;
+        totalReplacements += count;
+        if (useI18nInstance) {
+          fileNeedsI18nImport = true;
+        }
+      }
+
       this.traverse(nodePath);
     },
 
@@ -933,7 +1166,7 @@ export function transformFile(
    * Add useTranslation import if any component blocks were found.
    */
   if (componentBlocks.size > 0) {
-    addImport(
+    addDefaultImport(
       ast.program.body,
       "react-i18next",
       "useTranslation",
@@ -950,7 +1183,28 @@ export function transformFile(
    * TFunction comes from 'i18next' (not 'react-i18next').
    */
   if (helperNamesWithT.size > 0) {
-    addImport(ast.program.body, "i18next", "TFunction", buildTFunctionImport);
+    addDefaultImport(
+      ast.program.body,
+      "i18next",
+      "TFunction",
+      buildTFunctionImport,
+    );
+  }
+
+  if (fileNeedsI18nImport) {
+    if (!hasI18nBinding(ast.program.body)) {
+      const importPath = resolveI18nImportPath(filePath, appRoot, config);
+      addDefaultImport(ast.program.body, importPath, "i18n", () =>
+        b.importDeclaration(
+          [b.importDefaultSpecifier(b.identifier("i18n"))],
+          b.literal(importPath),
+        ),
+      );
+    } else {
+      logger.debug(
+        `  Skipped i18n import — binding already exists in ${path.relative(appRoot, filePath)}`,
+      );
+    }
   }
 
   const newCode = recast.print(ast).code;
@@ -1018,7 +1272,13 @@ export async function transformProject(
   const results: TransformResult[] = [];
 
   for (const filePath of uniqueFiles) {
-    const result = transformFile(filePath, appRoot, strings, localeData, config);
+    const result = transformFile(
+      filePath,
+      appRoot,
+      strings,
+      localeData,
+      config,
+    );
     results.push(result);
 
     if (result.modified) {
