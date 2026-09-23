@@ -1595,7 +1595,7 @@ function __param(paramIndex, decorator) {
     decorator(target, key, paramIndex);
   };
 }
-function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, exteainitializers) {
+function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, extraInitializers) {
   function accept(f) {
     if (f !== void 0 && typeof f !== "function") throw new TypeError("Function expected");
     return f;
@@ -1610,7 +1610,7 @@ function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, e
     for (var p in contextIn.access) context.access[p] = contextIn.access[p];
     context.addInitializer = function(f) {
       if (done) throw new TypeError("Cannot add initializers after decoration has completed");
-      exteainitializers.push(accept(f || null));
+      extraInitializers.push(accept(f || null));
     };
     var result = (0, decorators[i])(kind === "accessor" ? { get: descriptor.get, set: descriptor.set } : descriptor[key], context);
     if (kind === "accessor") {
@@ -4524,7 +4524,7 @@ var require_core2 = __commonJS({
       def("SwitchCase").bases("Node").build("test", "consequent").field("test", or(def("Expression"), null)).field("consequent", [def("Statement")]);
       def("Identifier").bases("Expression", "Pattern").build("name").field("name", String).field("optional", Boolean, defaults["false"]);
       def("Literal").bases("Expression").build("value").field("value", or(String, Boolean, null, Number, RegExp, BigInt));
-      def("Comment").bases("Printable").field("value", String).field("leading", Boolean, defaults["true"]).field("teailing", Boolean, defaults["false"]);
+      def("Comment").bases("Printable").field("value", String).field("leading", Boolean, defaults["true"]).field("trailing", Boolean, defaults["false"]);
     }
     exports2.default = default_1;
     (0, shared_1.maybeSetModuleExports)(function() {
@@ -5106,13 +5106,13 @@ var require_esprima = __commonJS({
         "value",
         /*optional:*/
         "leading",
-        "teailing"
+        "trailing"
       );
       def("Line").bases("Comment").build(
         "value",
         /*optional:*/
         "leading",
-        "teailing"
+        "trailing"
       );
     }
     exports2.default = default_1;
@@ -5150,13 +5150,13 @@ var require_babel_core = __commonJS({
         "value",
         /*optional:*/
         "leading",
-        "teailing"
+        "trailing"
       );
       def("CommentLine").bases("Comment").build(
         "value",
         /*optional:*/
         "leading",
-        "teailing"
+        "trailing"
       );
       def("Directive").bases("Node").build("value").field("value", def("DirectiveLiteral"));
       def("DirectiveLiteral").bases("Node", "Expression").build("value").field("value", String, defaults["use strict"]);
@@ -5421,7 +5421,7 @@ var require_typescript = __commonJS({
       def("TSTypeQuery").bases("TSType").build("exprName").field("exprName", or(TSEntityName, def("TSImportType")));
       var TSTypeMember = or(def("TSCallSignatureDeclaration"), def("TSConstructSignatureDeclaration"), def("TSIndexSignature"), def("TSMethodSignature"), def("TSPropertySignature"));
       def("TSTypeLiteral").bases("TSType").build("members").field("members", [TSTypeMember]);
-      def("TSTypeParameter").bases("Identifier").build("name", "consteaint", "default").field("name", or(def("Identifier"), String)).field("consteaint", or(def("TSType"), void 0), defaults["undefined"]).field("default", or(def("TSType"), void 0), defaults["undefined"]);
+      def("TSTypeParameter").bases("Identifier").build("name", "constraint", "default").field("name", or(def("Identifier"), String)).field("constraint", or(def("TSType"), void 0), defaults["undefined"]).field("default", or(def("TSType"), void 0), defaults["undefined"]);
       def("TSTypeAssertion").bases("Expression", "Pattern").build("typeAnnotation", "expression").field("typeAnnotation", def("TSType")).field("expression", def("Expression")).field("extra", or({ parenthesized: Boolean }, null), defaults["null"]);
       def("TSTypeParameterDeclaration").bases("Declaration").build("params").field("params", [def("TSTypeParameter")]);
       def("TSInstantiationExpression").bases("Expression", "TSHasOptionalTypeParameterInstantiation").build("expression", "typeParameters").field("expression", def("Expression"));
@@ -5683,6 +5683,23 @@ function resolveI18nImportPath(filePath, appRoot, config) {
   rel = rel.replace(/\.(ts|tsx|js|jsx)$/, "");
   if (!rel.startsWith(".")) rel = `./${rel}`;
   return rel;
+}
+function hasI18nBinding(programBody) {
+  for (const node of programBody) {
+    if (node.type !== "ImportDeclaration") continue;
+    for (const spec of node.specifiers ?? []) {
+      if (spec.type === "ImportDefaultSpecifier" && spec.local?.name === "i18n") {
+        return true;
+      }
+      if (spec.type === "ImportNamespaceSpecifier" && spec.local?.name === "i18n") {
+        return true;
+      }
+      if (spec.type === "ImportSpecifier" && spec.local?.name === "i18n") {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 function hasDefaultImport(programBody, source, localName) {
   return programBody.some(
@@ -6208,16 +6225,22 @@ function transformFile(filePath, appRoot, strings, localeData, config) {
     );
   }
   if (fileNeedsI18nImport) {
-    const importPath = resolveI18nImportPath(filePath, appRoot, config);
-    addDefaultImport(
-      ast.program.body,
-      importPath,
-      "i18n",
-      () => import_ast_types.builders.importDeclaration(
-        [import_ast_types.builders.importDefaultSpecifier(import_ast_types.builders.identifier("i18n"))],
-        import_ast_types.builders.literal(importPath)
-      )
-    );
+    if (!hasI18nBinding(ast.program.body)) {
+      const importPath = resolveI18nImportPath(filePath, appRoot, config);
+      addDefaultImport(
+        ast.program.body,
+        importPath,
+        "i18n",
+        () => import_ast_types.builders.importDeclaration(
+          [import_ast_types.builders.importDefaultSpecifier(import_ast_types.builders.identifier("i18n"))],
+          import_ast_types.builders.literal(importPath)
+        )
+      );
+    } else {
+      logger.debug(
+        `  Skipped i18n import \u2014 binding already exists in ${import_path9.default.relative(appRoot, filePath)}`
+      );
+    }
   }
   const newCode = recast.print(ast).code;
   return {
@@ -6466,46 +6489,47 @@ async function replace(options) {
   logger.success(`Done \u2014 ${written} file(s) updated.`);
   logger.section("Next steps");
   logger.info(`
-  1. Run your app and verify everything works:
-       npx expo start
+  ${import_chalk4.default.bold("Next steps")}
 
-  2. If something looks wrong, revert your changes:
+  1. ${import_chalk4.default.bold("Verify the app")}
+       Run the app and check screens, alerts, and any helpers that use i18n.
+       ${import_chalk4.default.cyan("npx expo start")}
+       ${import_chalk4.default.gray("# or your usual start command")}
+
+  2. ${import_chalk4.default.bold("If something looks wrong")}
+       Restore files from backups:
        ${import_chalk4.default.cyan("eai revert")}
-       Restores all files to their state before replace was run.
 
-       Or using git:
+       Or discard with git (only if you committed before replace):
        ${import_chalk4.default.cyan("git checkout .")}
-       Discards all uncommitted changes. This is why we asked you to commit before running replace.
 
-  3. If everything looks good, clean up backups and commit:
+  3. ${import_chalk4.default.bold("If everything looks good")}
+       Remove backup files, then commit:
        ${import_chalk4.default.cyan("eai revert --clean")}
        ${import_chalk4.default.cyan("git add .")}
        ${import_chalk4.default.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
 
-  4. To add translations for other languages:
-       ${import_chalk4.default.cyan(`eai locales-generate --only fr,es`)}
-       Generates locale files for the specified languages based on your default locale.
+  4. ${import_chalk4.default.bold("Add other languages")}
+       Prefer generating locales and wiring imports in one step:
+       ${import_chalk4.default.cyan("eai locales-generate --only fr,es --with-imports")}
 
-       Options:
-         ${import_chalk4.default.gray("--only <langs>")}     Comma-separated language codes to generate (e.g. fr,es,ar)
-         ${import_chalk4.default.gray("--force")}            Overwrite existing locale files
-         ${import_chalk4.default.gray("--with-imports")}     Automatically wire imports into your i18n config file
-         ${import_chalk4.default.gray("--dry-run")}          Preview what would be generated without writing files
+       That will:
+         \u2022 create locale files from your default language
+         \u2022 add the matching imports / resources entries in your i18n file
 
-       Then translate the values in the generated files, or wire up a translation API.
-       Add each new language to your i18n.ts resources object:
+       Useful flags:
+         ${import_chalk4.default.gray("--only fr,es,ar")}   languages to generate
+         ${import_chalk4.default.gray("--with-imports")}  update i18n config automatically ${import_chalk4.default.green("(recommended)")}
+         ${import_chalk4.default.gray("--force")}         overwrite existing locale files
+         ${import_chalk4.default.gray("--dry-run")}       preview without writing
 
-       ${import_chalk4.default.cyan(`import fr from './${import_path11.default.relative(appRoot, localeFilePath).replace("en", "fr").replace(/\\/g, "/")}'
+       Then translate the values in the new JSON files (keys stay the same).
+       Switch language at runtime with:
+       ${import_chalk4.default.cyan('i18n.changeLanguage("fr")')}
 
-  i18n.init({
-    resources: {
-      en: { translation: en },
-      fr: { translation: fr },  // \u2190 add this
-    },
-    ...
-  })`)}
-
-  5. Copy ${import_path11.default.relative(appRoot, localeFilePath)} as a reference for manual translations.
+  5. ${import_chalk4.default.bold("Reference")}
+       Default locale file:
+       ${import_chalk4.default.cyan(import_path11.default.relative(appRoot, localeFilePath).replace(/\\/g, "/"))}
 `);
 }
 var import_path11, import_chalk4, import_ora2;
@@ -6979,9 +7003,9 @@ var import_commander = require("commander");
 
 // package.json
 var package_default = {
-  name: "react-auto-i18n",
-  version: "1.0.1",
-  description: "Automatic i18n scanner and code transformer for React Native apps",
+  name: "@autoi18n/expo",
+  version: "1.1.0",
+  description: "Automatic i18n scaffolding and code transformation for Expo apps",
   main: "dist/index.js",
   types: "dist/index.d.ts",
   bin: {
@@ -6997,7 +7021,6 @@ var package_default = {
     prepublishOnly: "npm run clean && npm run build"
   },
   keywords: [
-    "react",
     "react-native",
     "expo",
     "i18n",
@@ -7014,11 +7037,11 @@ var package_default = {
   license: "MIT",
   repository: {
     type: "git",
-    url: "git+https://github.com/SiandjaRemy/react-auto-i18n.git"
+    url: "git+https://github.com/SiandjaRemy/autoi18n-expo.git"
   },
-  homepage: "https://github.com/SiandjaRemy/react-auto-i18n#readme",
+  homepage: "https://github.com/SiandjaRemy/autoi18n-expo#readme",
   bugs: {
-    url: "https://github.com/SiandjaRemy/react-auto-i18n/issues"
+    url: "https://github.com/SiandjaRemy/autoi18n-expo/issues"
   },
   dependencies: {
     "@babel/generator": "7.26.5",
