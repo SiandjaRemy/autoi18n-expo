@@ -7,6 +7,31 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.0] — 2026-09-23
+
+### Changed
+- Package renamed from `react-auto-i18n` to `@autoi18n/expo`
+- Scope reduced to Expo / React Native projects
+- No breaking changes to commands, config file format, or locale output
+
+### Migration from react-auto-i18n
+
+```bash
+npm uninstall react-auto-i18n
+npm install @autoi18n/expo
+```
+
+Update the import in your config file:
+
+```ts
+// Before
+import { defineConfig } from 'react-auto-i18n'
+
+// After  
+import { defineConfig } from '@autoi18n/expo'
+```
+
+Everything else (eai.config.ts fields, locale file format, commands) stays identical.
 
 ## [1.0.1] — 2026-08-18
 

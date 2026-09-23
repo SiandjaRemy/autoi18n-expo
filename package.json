@@ -17,7 +17,6 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [
-    "react",
     "react-native",
     "expo",
     "i18n",
@@ -34,11 +33,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SiandjaRemy/react-auto-i18n.git"
+    "url": "git+https://github.com/SiandjaRemy/autoi18n-expo.git"
   },
-  "homepage": "https://github.com/SiandjaRemy/react-auto-i18n#readme",
+  "homepage": "https://github.com/SiandjaRemy/autoi18n-expo#readme",
   "bugs": {
-    "url": "https://github.com/SiandjaRemy/react-auto-i18n/issues"
+    "url": "https://github.com/SiandjaRemy/autoi18n-expo/issues"
   },
   "dependencies": {
     "@babel/generator": "7.26.5",
