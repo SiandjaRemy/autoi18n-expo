@@ -21,7 +21,7 @@ export function wireLocaleImports(
   if (!fs.existsSync(i18nFilePath)) {
     console.warn(
       `⚠ ${i18nFilePath} not found — skipping import wiring.\n` +
-        `  Create it first (see \`rai scan\` output for the template), ` +
+        `  Create it first (see \`eai scan\` output for the template), ` +
         `then re-run with --with-imports.`,
     );
     return [];

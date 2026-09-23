@@ -3,7 +3,7 @@ interface ScanOptions {
     dryRun?: boolean;
 }
 /**
- * `rai scan`
+ * `eai scan`
  *
  * Scans the entire React Native project for translatable strings
  * and generates a locale JSON file for the default language.

@@ -15,7 +15,7 @@ interface ReplaceOptions {
 }
 
 /**
- * `rai replace`
+ * `eai replace`
  *
  * Reads the existing locale file, re-scans the project to get string
  * locations, then rewrites every source file replacing raw strings
@@ -51,7 +51,7 @@ export async function replace(options: ReplaceOptions): Promise<void> {
     process.exit(1);
   }
 
-  logger.section("rai — Replace");
+  logger.section("eai — Replace");
   if (isDryRun) logger.warn("  Dry run — no files will be written.\n");
 
   // ── Step 2: Check locale file exists ─────────────────────────────────────
@@ -64,7 +64,7 @@ export async function replace(options: ReplaceOptions): Promise<void> {
   if (!exists(localeFilePath)) {
     logger.error(
       `Locale file not found: ${path.relative(appRoot, localeFilePath)}\n` +
-        `  Run "rai scan" first to generate the locale file.`,
+        `  Run "eai scan" first to generate the locale file.`,
     );
     process.exit(1);
   }
@@ -80,7 +80,7 @@ export async function replace(options: ReplaceOptions): Promise<void> {
   logger.info(`  Keys loaded : ${keyCount}`);
 
   if (keyCount === 0) {
-    logger.error(`The locale file is empty. Run "rai scan" to populate it.`);
+    logger.error(`The locale file is empty. Run "eai scan" to populate it.`);
     process.exit(1);
   }
 
@@ -173,7 +173,7 @@ export async function replace(options: ReplaceOptions): Promise<void> {
     try {
       /**
        * Back up the original file before writing.
-       * This enables `rai revert` to restore the pre-replace state
+       * This enables `eai revert` to restore the pre-replace state
        * even if the user did not commit beforehand.
        *
        * If a backup already exists from a previous replace run,
@@ -209,20 +209,20 @@ export async function replace(options: ReplaceOptions): Promise<void> {
 
   2. ${chalk.bold("If something looks wrong")}
        Restore files from backups:
-       ${chalk.cyan("rai revert")}
+       ${chalk.cyan("eai revert")}
 
        Or discard with git (only if you committed before replace):
        ${chalk.cyan("git checkout .")}
 
   3. ${chalk.bold("If everything looks good")}
        Remove backup files, then commit:
-       ${chalk.cyan("rai revert --clean")}
+       ${chalk.cyan("eai revert --clean")}
        ${chalk.cyan("git add .")}
        ${chalk.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
 
   4. ${chalk.bold("Add other languages")}
        Prefer generating locales and wiring imports in one step:
-       ${chalk.cyan("rai locales-generate --only fr,es --with-imports")}
+       ${chalk.cyan("eai locales-generate --only fr,es --with-imports")}
 
        That will:
          • create locale files from your default language

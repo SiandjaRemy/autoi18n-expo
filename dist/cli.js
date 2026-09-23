@@ -346,7 +346,7 @@ async function requireConfig(appRoot) {
   if (!config) {
     logger.error(
       `No ${CONFIG_FILENAME} found in ${appRoot}
-  Run "rai init" first to create your config file.`
+  Run "eai init" first to create your config file.`
     );
     process.exit(1);
   }
@@ -367,8 +367,8 @@ function validateLocalesDir(localesDir, appRoot) {
   Use a path relative to your project root, e.g. 'locales' or 'src/locales'.`;
   }
   if (localesDir.endsWith("/") || localesDir.endsWith("\\")) {
-    return `"localesDir" must not have a trailing slash, got "${localesDir}".
-  Remove the trailing slash: '${localesDir.replace(/[/\\]+$/, "")}'`;
+    return `"localesDir" must not have a teailing slash, got "${localesDir}".
+  Remove the teailing slash: '${localesDir.replace(/[/\\]+$/, "")}'`;
   }
   const resolvedDir = import_path.default.join(appRoot, localesDir);
   const parentDir = import_path.default.dirname(resolvedDir);
@@ -390,7 +390,7 @@ var init_config2 = __esm({
     import_fs = __toESM(require("fs"));
     init_logger();
     init_config();
-    CONFIG_FILENAME = "rai.config.ts";
+    CONFIG_FILENAME = "eai.config.ts";
     DEFAULT_CONFIG = {
       defaultLanguage: "en",
       localesDir: "locales",
@@ -454,7 +454,7 @@ function generateInitialI18nFile(appRoot, config) {
   if (import_fs3.default.existsSync(filePath)) {
     logger.warn(
       `  ${config.i18nFilePath} already exists \u2014 skipping generation.
-  Delete it and re-run "rai init" if you want a fresh one.`
+  Delete it and re-run "eai init" if you want a fresh one.`
     );
     return;
   }
@@ -605,7 +605,7 @@ __export(init_exports, {
 async function init(options) {
   const appRoot = import_path5.default.resolve(options.path);
   const configPath = getConfigPath(appRoot);
-  logger.section("rai \u2014 Init");
+  logger.section("eai \u2014 Init");
   const profile = detectProjectProfile(appRoot);
   logger.section("Detected project profile");
   const projectType = profile.isExpo ? "Expo" : profile.isNext ? "Next.js" : profile.isReactNative ? "React Native" : "React";
@@ -621,7 +621,7 @@ async function init(options) {
   if (import_fs6.default.existsSync(configPath)) {
     logger.warn(
       `${CONFIG_FILENAME} already exists \u2014 skipping.
-  Delete it and re-run "rai init" to regenerate with detected defaults.`
+  Delete it and re-run "eai init" to regenerate with detected defaults.`
     );
   } else {
     const configContent = buildConfigContent(profile);
@@ -656,13 +656,13 @@ async function init(options) {
        ${import_chalk2.default.gray(`(defaultLanguage is always 'en' \u2014 update if your app uses a different language)`)}
     2. Commit the generated files
     3. Run:
-         ${import_chalk2.default.cyan("rai scan")}
+         ${import_chalk2.default.cyan("eai scan")}
   `);
 }
 function buildConfigContent(profile) {
-  return `import { defineRaiConfig } from 'react-auto-i18n'
+  return `import { defineEaiConfig } from '@autoi18n/expo'
 
-export default defineRaiConfig({
+export default defineEaiConfig({
   defaultLanguage: 'en',
   localesDir: '${profile.recommendedLocalesDir}',
   localeFileName: null,
@@ -1371,7 +1371,7 @@ async function scan(options) {
     process.exit(1);
   }
   const outputPreview = config.localeFileName ? `${config.localesDir}/${config.defaultLanguage}/${config.localeFileName}.json` : `${config.localesDir}/${config.defaultLanguage}.json`;
-  logger.section("rai \u2014 Scan");
+  logger.section("eai \u2014 Scan");
   if (isDryRun) logger.warn("  Dry run \u2014 no files will be written.\n");
   logger.info(`  App root    : ${appRoot}`);
   logger.info(`  Language    : ${config.defaultLanguage}`);
@@ -1507,7 +1507,7 @@ function printNextSteps(appRoot, localesDir, defaultLang, localeFileName, i18nFi
        ${import_chalk3.default.cyan(`git commit -m "chore: add i18n locale file"`)}
 
   3. Then run:
-       ${import_chalk3.default.cyan("rai replace")}
+       ${import_chalk3.default.cyan("eai replace")}
   `);
 }
 var import_path8, import_chalk3, import_ora, import_fs10;
@@ -1595,7 +1595,7 @@ function __param(paramIndex, decorator) {
     decorator(target, key, paramIndex);
   };
 }
-function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, extraInitializers) {
+function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, exteainitializers) {
   function accept(f) {
     if (f !== void 0 && typeof f !== "function") throw new TypeError("Function expected");
     return f;
@@ -1610,7 +1610,7 @@ function __esDecorate(ctor, descriptorIn, decorators, contextIn, initializers, e
     for (var p in contextIn.access) context.access[p] = contextIn.access[p];
     context.addInitializer = function(f) {
       if (done) throw new TypeError("Cannot add initializers after decoration has completed");
-      extraInitializers.push(accept(f || null));
+      exteainitializers.push(accept(f || null));
     };
     var result = (0, decorators[i])(kind === "accessor" ? { get: descriptor.get, set: descriptor.set } : descriptor[key], context);
     if (kind === "accessor") {
@@ -4524,7 +4524,7 @@ var require_core2 = __commonJS({
       def("SwitchCase").bases("Node").build("test", "consequent").field("test", or(def("Expression"), null)).field("consequent", [def("Statement")]);
       def("Identifier").bases("Expression", "Pattern").build("name").field("name", String).field("optional", Boolean, defaults["false"]);
       def("Literal").bases("Expression").build("value").field("value", or(String, Boolean, null, Number, RegExp, BigInt));
-      def("Comment").bases("Printable").field("value", String).field("leading", Boolean, defaults["true"]).field("trailing", Boolean, defaults["false"]);
+      def("Comment").bases("Printable").field("value", String).field("leading", Boolean, defaults["true"]).field("teailing", Boolean, defaults["false"]);
     }
     exports2.default = default_1;
     (0, shared_1.maybeSetModuleExports)(function() {
@@ -5106,13 +5106,13 @@ var require_esprima = __commonJS({
         "value",
         /*optional:*/
         "leading",
-        "trailing"
+        "teailing"
       );
       def("Line").bases("Comment").build(
         "value",
         /*optional:*/
         "leading",
-        "trailing"
+        "teailing"
       );
     }
     exports2.default = default_1;
@@ -5150,13 +5150,13 @@ var require_babel_core = __commonJS({
         "value",
         /*optional:*/
         "leading",
-        "trailing"
+        "teailing"
       );
       def("CommentLine").bases("Comment").build(
         "value",
         /*optional:*/
         "leading",
-        "trailing"
+        "teailing"
       );
       def("Directive").bases("Node").build("value").field("value", def("DirectiveLiteral"));
       def("DirectiveLiteral").bases("Node", "Expression").build("value").field("value", String, defaults["use strict"]);
@@ -5421,7 +5421,7 @@ var require_typescript = __commonJS({
       def("TSTypeQuery").bases("TSType").build("exprName").field("exprName", or(TSEntityName, def("TSImportType")));
       var TSTypeMember = or(def("TSCallSignatureDeclaration"), def("TSConstructSignatureDeclaration"), def("TSIndexSignature"), def("TSMethodSignature"), def("TSPropertySignature"));
       def("TSTypeLiteral").bases("TSType").build("members").field("members", [TSTypeMember]);
-      def("TSTypeParameter").bases("Identifier").build("name", "constraint", "default").field("name", or(def("Identifier"), String)).field("constraint", or(def("TSType"), void 0), defaults["undefined"]).field("default", or(def("TSType"), void 0), defaults["undefined"]);
+      def("TSTypeParameter").bases("Identifier").build("name", "consteaint", "default").field("name", or(def("Identifier"), String)).field("consteaint", or(def("TSType"), void 0), defaults["undefined"]).field("default", or(def("TSType"), void 0), defaults["undefined"]);
       def("TSTypeAssertion").bases("Expression", "Pattern").build("typeAnnotation", "expression").field("typeAnnotation", def("TSType")).field("expression", def("Expression")).field("extra", or({ parenthesized: Boolean }, null), defaults["null"]);
       def("TSTypeParameterDeclaration").bases("Declaration").build("params").field("params", [def("TSTypeParameter")]);
       def("TSInstantiationExpression").bases("Expression", "TSHasOptionalTypeParameterInstantiation").build("expression", "typeParameters").field("expression", def("Expression"));
@@ -5943,7 +5943,7 @@ function transformFile(filePath, appRoot, strings, localeData, config) {
       );
       if (!extracted) return this.traverse(nodePath);
       const leadingChar = originalValue[0];
-      const trailingChar = originalValue[originalValue.length - 1];
+      const teailingChar = originalValue[originalValue.length - 1];
       const hasLeadingSpace = (() => {
         if (leadingChar !== " ") return false;
         const contentStart = originalValue.indexOf(normalized[0]);
@@ -5951,8 +5951,8 @@ function transformFile(filePath, appRoot, strings, localeData, config) {
         const beforeContent = originalValue.slice(0, contentStart);
         return !beforeContent.includes("\n");
       })();
-      const hasTrailingSpace = (() => {
-        if (trailingChar !== " ") return false;
+      const hasTeailingSpace = (() => {
+        if (teailingChar !== " ") return false;
         const contentEnd = originalValue.lastIndexOf(
           normalized[normalized.length - 1]
         );
@@ -5960,7 +5960,7 @@ function transformFile(filePath, appRoot, strings, localeData, config) {
         return !afterContent.includes("\n");
       })();
       const call = buildTCall(extracted.fullKey);
-      if (!hasLeadingSpace && !hasTrailingSpace) {
+      if (!hasLeadingSpace && !hasTeailingSpace) {
         nodePath.replace(buildJSXExpression(call));
         totalReplacements++;
         return false;
@@ -5968,7 +5968,7 @@ function transformFile(filePath, appRoot, strings, localeData, config) {
       const nodes = [];
       if (hasLeadingSpace) nodes.push(import_ast_types.builders.jsxText(" "));
       nodes.push(buildJSXExpression(call));
-      if (hasTrailingSpace) nodes.push(import_ast_types.builders.jsxText(" "));
+      if (hasTeailingSpace) nodes.push(import_ast_types.builders.jsxText(" "));
       nodePath.replace(nodes[0]);
       for (let i = nodes.length - 1; i >= 1; i--) {
         nodePath.insertAfter(nodes[i]);
@@ -6360,7 +6360,7 @@ async function replace(options) {
   ${dirError}`);
     process.exit(1);
   }
-  logger.section("rai \u2014 Replace");
+  logger.section("eai \u2014 Replace");
   if (isDryRun) logger.warn("  Dry run \u2014 no files will be written.\n");
   const localeFilePath = resolveLocaleFilePath(
     localesDir,
@@ -6370,7 +6370,7 @@ async function replace(options) {
   if (!exists(localeFilePath)) {
     logger.error(
       `Locale file not found: ${import_path11.default.relative(appRoot, localeFilePath)}
-  Run "rai scan" first to generate the locale file.`
+  Run "eai scan" first to generate the locale file.`
     );
     process.exit(1);
   }
@@ -6383,7 +6383,7 @@ async function replace(options) {
   logger.info(`  Locale file : ${import_path11.default.relative(appRoot, localeFilePath)}`);
   logger.info(`  Keys loaded : ${keyCount}`);
   if (keyCount === 0) {
-    logger.error(`The locale file is empty. Run "rai scan" to populate it.`);
+    logger.error(`The locale file is empty. Run "eai scan" to populate it.`);
     process.exit(1);
   }
   logger.section("Scanning for string locations...");
@@ -6470,7 +6470,7 @@ async function replace(options) {
        npx expo start
 
   2. If something looks wrong, revert your changes:
-       ${import_chalk4.default.cyan("rai revert")}
+       ${import_chalk4.default.cyan("eai revert")}
        Restores all files to their state before replace was run.
 
        Or using git:
@@ -6478,12 +6478,12 @@ async function replace(options) {
        Discards all uncommitted changes. This is why we asked you to commit before running replace.
 
   3. If everything looks good, clean up backups and commit:
-       ${import_chalk4.default.cyan("rai revert --clean")}
+       ${import_chalk4.default.cyan("eai revert --clean")}
        ${import_chalk4.default.cyan("git add .")}
        ${import_chalk4.default.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
 
   4. To add translations for other languages:
-       ${import_chalk4.default.cyan(`rai locales-generate --only fr,es`)}
+       ${import_chalk4.default.cyan(`eai locales-generate --only fr,es`)}
        Generates locale files for the specified languages based on your default locale.
 
        Options:
@@ -6535,12 +6535,12 @@ __export(revert_exports, {
 async function revert(options) {
   const appRoot = import_path12.default.resolve(options.path);
   const isClean = options.clean ?? false;
-  logger.section(`rai \u2014 ${isClean ? "Clean backups" : "Revert"}`);
+  logger.section(`eai \u2014 ${isClean ? "Clean backups" : "Revert"}`);
   const backupFiles = await findBackupFiles(appRoot);
   if (backupFiles.length === 0) {
     logger.warn("No backup files found.");
     logger.info(
-      '  Backup files (.i18nbak) are created when you run "rai replace".\n  If you already ran "rai revert --clean", they have been deleted.\n  You can also use git to revert: git checkout .'
+      '  Backup files (.i18nbak) are created when you run "eai replace".\n  If you already ran "eai revert --clean", they have been deleted.\n  You can also use git to revert: git checkout .'
     );
     process.exit(0);
   }
@@ -6587,7 +6587,7 @@ async function revert(options) {
     logger.newline();
     logger.success(`Restored ${restored} file(s) to their original state.`);
     logger.info(
-      '\n  Your source files have been reverted.\n  The locale file was not changed.\n  Run "rai replace" again when ready.'
+      '\n  Your source files have been reverted.\n  The locale file was not changed.\n  Run "eai replace" again when ready.'
     );
   }
 }
@@ -6654,7 +6654,7 @@ function wireLocaleImports(i18nFilePath, localesDir, localeFileName, languages) 
   if (!import_fs14.default.existsSync(i18nFilePath)) {
     console.warn(
       `\u26A0 ${i18nFilePath} not found \u2014 skipping import wiring.
-  Create it first (see \`rai scan\` output for the template), then re-run with --with-imports.`
+  Create it first (see \`eai scan\` output for the template), then re-run with --with-imports.`
     );
     return [];
   }
@@ -6814,7 +6814,7 @@ async function runLocalesGenerate(options) {
   const rawTargets = options.only ?? config.targetLanguages ?? [];
   if (rawTargets.length === 0) {
     logger.error(
-      "No target languages specified.\n\n  Option A \u2014 pass languages directly:\n    rai locales-generate --only fr,es,ar\n\n  Option B \u2014 add languages to your config and run without --only:\n    targetLanguages: ['fr', 'es', 'ar']  // in rai.config.ts"
+      "No target languages specified.\n\n  Option A \u2014 pass languages directly:\n    eai locales-generate --only fr,es,ar\n\n  Option B \u2014 add languages to your config and run without --only:\n    targetLanguages: ['fr', 'es', 'ar']  // in eai.config.ts"
     );
     process.exit(1);
   }
@@ -6840,7 +6840,7 @@ async function runLocalesGenerate(options) {
   if (skippedDefault.length > 0) {
     logger.warn(
       `  Skipping "${config.defaultLanguage}" \u2014 this is your default language.
-  Its locale file is managed by "rai scan", not "rai locales-generate".`
+  Its locale file is managed by "eai scan", not "eai locales-generate".`
     );
     logger.newline();
   }
@@ -6854,7 +6854,7 @@ async function runLocalesGenerate(options) {
       `Default locale file not found at:
   ${defaultFilePath}
 
-  Run "rai scan" first to generate it.`
+  Run "eai scan" first to generate it.`
     );
     process.exit(1);
   }
@@ -6875,7 +6875,7 @@ async function runLocalesGenerate(options) {
       }
     }
   }
-  logger.section("rai \u2014 Locales Generate");
+  logger.section("eai \u2014 Locales Generate");
   logger.info(
     `  Default locale : ${config.defaultLanguage} (${defaultKeyCount} keys)`
   );
@@ -6915,7 +6915,7 @@ async function runLocalesGenerate(options) {
   if (options.withImports && !options.dryRun) {
     if (!config.i18nFilePath) {
       logger.warn(
-        "i18nFilePath not set in rai.config.ts \u2014 skipping import wiring."
+        "i18nFilePath not set in eai.config.ts \u2014 skipping import wiring."
       );
     } else {
       const wired = wireLocaleImports(
@@ -6945,7 +6945,7 @@ async function runLocalesGenerate(options) {
       logger.newline();
       logger.info(
         `  Once translated, wire the imports into your i18n config:
-    rai locales-generate --only ${targets.join(",")} --with-imports`
+    eai locales-generate --only ${targets.join(",")} --with-imports`
       );
     }
   }
@@ -6985,7 +6985,7 @@ var package_default = {
   main: "dist/index.js",
   types: "dist/index.d.ts",
   bin: {
-    rai: "dist/cli.js"
+    eai: "dist/cli.js"
   },
   files: [
     "dist"
@@ -7060,7 +7060,7 @@ var package_default = {
 
 // src/cli.ts
 var APP_VERSION = package_default.version;
-import_commander.program.name("rai").description(
+import_commander.program.name("eai").description(
   "Automatic i18n scanner and code transformer for React Native apps"
 ).version(APP_VERSION).enablePositionalOptions().option("--debug", "Show verbose debug output").hook("preAction", () => {
   if (import_commander.program.opts().debug) {
@@ -7068,7 +7068,7 @@ import_commander.program.name("rai").description(
     setDebugMode2(true);
   }
 });
-import_commander.program.command("init").description("Generate rai.config.ts with default settings").option("-p, --path <path>", "Root path of the project", ".").action(async (options) => {
+import_commander.program.command("init").description("Generate eai.config.ts with default settings").option("-p, --path <path>", "Root path of the project", ".").action(async (options) => {
   const { init: init2 } = await Promise.resolve().then(() => (init_init(), init_exports));
   await init2(options);
 });

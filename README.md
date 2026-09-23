@@ -40,19 +40,19 @@
 ## How it works
 
 ```
-npx rai init                Create the config file
+npx eai init                Create the config file
      ↓
-npx rai scan                Scan the app → generate locales/en.json (or your locale file)
+npx eai scan                Scan the app → generate locales/en.json (or your locale file)
      ↓
 You: set up react-i18next, commit
      ↓
-npx rai replace             Rewrite source files with t() calls
+npx eai replace             Rewrite source files with t() calls
      ↓
 You: verify the app works
      ↓
-npx rai revert --clean      Delete backups → commit
+npx eai revert --clean      Delete backups → commit
      ↓
-npx rai locales-generate    Generate locale files for other languages
+npx eai locales-generate    Generate locale files for other languages
 ```
 
 ---
@@ -63,7 +63,7 @@ npx rai locales-generate    Generate locale files for other languages
 npm install react-auto-i18n
 ```
 
-Or install globally so the `rai` command is available anywhere:
+Or install globally so the `eai` command is available anywhere:
 
 ```bash
 npm install -g react-auto-i18n
@@ -85,10 +85,10 @@ npm install -g react-auto-i18n
 Run this from your project root:
 
 ```bash
-npx rai init
+npx eai init
 ```
 
-This creates `rai.config.ts` with typed defaults. Open it and check at minimum:
+This creates `eai.config.ts` with typed defaults. Open it and check at minimum:
 
 - `defaultLanguage` — the language your app is currently written in
 - `localesDir` — where locale files should be generated (`locales` or `src/locales`)
@@ -99,7 +99,7 @@ A description of each config can be seen at its top (For v2, an update will be d
 ### 2. Scan your app
 
 ```bash
-npx rai scan
+npx eai scan
 ```
 
 This scans every `.ts`, `.tsx`, `.js`, and `.jsx` file in your project, extracts all translatable strings, and writes a locale JSON file. A preview of everything found is shown before any files are written. You will be asked to confirm before writing.
@@ -111,7 +111,7 @@ After scanning, follow the printed instructions to set up a basic `react-i18next
 Make sure you have committed your current state first because the next step modifies source files.
 
 ```bash
-npx rai replace
+npx eai replace
 ```
 
 This rewrites your source files to use `t()` calls. For each modified file it:
@@ -129,10 +129,10 @@ Run your app and verify everything works. Then:
 
 ```bash
 # If something looks wrong — restore original files
-npx rai revert
+npx eai revert
 
 # If everything looks good — clean up backups and commit
-npx rai revert --clean
+npx eai revert --clean
 git add .
 git commit -m "feat: replace strings with i18n t() calls"
 ```
@@ -140,7 +140,7 @@ git commit -m "feat: replace strings with i18n t() calls"
 ### 5. Generate locale files for other languages
 
 ```bash
-npx rai locales-generate --only fr,es,ar
+npx eai locales-generate --only fr,es,ar
 ```
 
 This creates locale files for the specified languages, pre-populated with your default language values ready for translation.
@@ -150,27 +150,27 @@ Manual translation is needed for the files content after this point.
 
 ## Commands
 
-### `npx rai init`
+### `npx eai init`
 
-Generates `rai.config.ts` in your project root with typed defaults.
+Generates `eai.config.ts` in your project root with typed defaults.
 
 ```bash
-npx rai init
-npx rai init --path ./my-app   # specify a different project root
+npx eai init
+npx eai init --path ./my-app   # specify a different project root
 ```
 
 Safe to run — exits with a warning if a config already exists.
 
 ---
 
-### `npx rai scan`
+### `npx eai scan`
 
 Scans source files and generates the locale JSON file for your default language.
 
 ```bash
-npx rai scan
-npx rai scan --dry-run         # preview what would be found without writing
-npx rai scan --path ./my-app
+npx eai scan
+npx eai scan --dry-run         # preview what would be found without writing
+npx eai scan --path ./my-app
 ```
 
 **What gets detected:**
@@ -197,14 +197,14 @@ npx rai scan --path ./my-app
 
 ---
 
-### `npx rai replace`
+### `npx eai replace`
 
 Rewrites source files to use `t()` calls based on the generated locale file.
 
 ```bash
-npx rai replace
-npx rai replace --dry-run      # preview affected files without writing
-npx rai replace --path ./my-app
+npx eai replace
+npx eai replace --dry-run      # preview affected files without writing
+npx eai replace --path ./my-app
 ```
 
 **Replacement examples:**
@@ -267,34 +267,34 @@ function getStatusLabel(status: string, t: TFunction) {
 
 **Next.js App Router: `createContext only works in Client Components` error**
 Components using `useTranslation()` must be Client Components in Next.js App Router.
-Add `'use client'` as the first line of each file modified by `npx rai replace`,
-or set `addUseClientDirective: true` in `rai.config.ts` to have the tool add it automatically.
+Add `'use client'` as the first line of each file modified by `npx eai replace`,
+or set `addUseClientDirective: true` in `eai.config.ts` to have the tool add it automatically.
 
 ---
 
-### `npx rai revert`
+### `npx eai revert`
 
-Restores source files to their state before `npx rai replace` was run, using the `.i18nbak` backup files created during replacement.
+Restores source files to their state before `npx eai replace` was run, using the `.i18nbak` backup files created during replacement.
 
 ```bash
-npx rai revert                 # restore files from backups
-npx rai revert --clean         # delete backups without restoring (after verifying)
-npx rai revert --path ./my-app
+npx eai revert                 # restore files from backups
+npx eai revert --clean         # delete backups without restoring (after verifying)
+npx eai revert --path ./my-app
 ```
 
 ---
 
-### `npx rai locales-generate`
+### `npx eai locales-generate`
 
 Generates locale files for one or more target languages based on your default locale file.
 
 ```bash
-npx rai locales-generate                            # generates locales for languages set in targetLanguages in the config file
-npx rai locales-generate --only fr
-npx rai locales-generate --only fr,es,ar
-npx rai locales-generate --only fr --force          # overwrite existing files
-npx rai locales-generate --only fr --with-imports   # also wire imports into i18n file
-npx rai locales-generate --only fr --dry-run        # preview without writing
+npx eai locales-generate                            # generates locales for languages set in targetLanguages in the config file
+npx eai locales-generate --only fr
+npx eai locales-generate --only fr,es,ar
+npx eai locales-generate --only fr --force          # overwrite existing files
+npx eai locales-generate --only fr --with-imports   # also wire imports into i18n file
+npx eai locales-generate --only fr --dry-run        # preview without writing
 ```
 
 Each generated file is a copy of your default locale with the same keys, ready to hand off for translation. If a file already exists, only missing keys are added — existing translations are preserved.
@@ -313,11 +313,11 @@ Each generated file is a copy of your default locale with the same keys, ready t
 
 ## Configuration
 
-`npx rai init` generates a fully typed config file. All fields are optional — missing fields fall back to their defaults.
+`npx eai init` generates a fully typed config file. All fields are optional — missing fields fall back to their defaults.
 
 ```ts
-// rai.config.ts
-import type { RaiConfig } from "react-auto-i18n";
+// eai.config.ts
+import type { eaiConfig } from "react-auto-i18n";
 
 export default {
   defaultLanguage: "en",
@@ -330,7 +330,7 @@ export default {
   exclude: [],
   targetLanguages: [],
   i18nFilePath: "src/i18n.ts",
-} satisfies Partial<RaiConfig>;
+} satisfies Partial<eaiConfig>;
 ```
 
 
@@ -346,7 +346,7 @@ export default {
 | `detectThrows`      | `true`          | Extract strings from `throw new Error()` statements                                |
 | `customDetectCalls` | `[]`            | Additional function patterns to extract strings from                               |
 | `exclude`           | `[]`            | Glob patterns to exclude from scanning                                             |
-| `targetLanguages`   | `[]`            | Languages to generate with `npx rai locales-generate`                                  |
+| `targetLanguages`   | `[]`            | Languages to generate with `npx eai locales-generate`                                  |
 | `i18nFilePath`      | `'src/i18n.ts'` | Path to your i18n setup file (used by `--with-imports`)                            |
 
 ### Language codes
@@ -388,7 +388,7 @@ Same key format, different file structure. Matches the convention used by many i
 
 ## Setting up react-i18next
 
-After running `npx rai scan`, the tool prints setup instructions tailored to your config. Here is the general pattern:
+After running `npx eai scan`, the tool prints setup instructions tailored to your config. Here is the general pattern:
 
 ### Install dependencies
 
@@ -441,7 +441,7 @@ import "./src/i18n";
 Once your app is working with the default language, generate locale files for other languages:
 
 ```bash
-npx rai locales-generate --only fr,es
+npx eai locales-generate --only fr,es
 ```
 
 Then translate the values in each generated file. The files contain your default language's text as placeholder values, ready to be replaced with translations.
@@ -506,8 +506,8 @@ const key = condition ? keyA : keyB  // variable key
 <Text>{messages[index]}</Text>       // array access
 ```
 
-**`npx rai replace` is not idempotent.**
-Running `npx rai replace` twice on an already-replaced file will produce incorrect output. Always use `npx rai revert` before re-running.
+**`npx eai replace` is not idempotent.**
+Running `npx eai replace` twice on an already-replaced file will produce incorrect output. Always use `npx eai revert` before re-running.
 
 ---
 
@@ -520,10 +520,10 @@ Your `src/i18n.ts` file is not being imported before components render. Make sur
 The hook was not injected into a component. This happens when the component uses a naming pattern the tool does not recognize. Add `const { t } = useTranslation()` manually to the component.
 
 **Strings not being detected**
-Run `npx rai scan --debug` to see every file considered and which strings are found. Check that the file is not excluded by your `.gitignore` or `config.exclude`.
+Run `npx eai scan --debug` to see every file considered and which strings are found. Check that the file is not excluded by your `.gitignore` or `config.exclude`.
 
 **Import path error in `i18n.ts`**
-The `npx rai scan` output prints the exact import path to use for your configuration. Use that path rather than guessing.
+The `npx eai scan` output prints the exact import path to use for your configuration. Use that path rather than guessing.
 
 **App still shows keys after replace**
 The i18next `resources` object in `src/i18n.ts` is not including the locale file. Make sure the locale file is imported and listed under the correct language code.
@@ -532,7 +532,7 @@ The i18next `resources` object in `src/i18n.ts` is not including the locale file
 
 ## Future updates
 
-- **Translation API integration:** `npx rai translate fr,es,ar` to generate translated locale files via Google Translate or DeepL
+- **Translation API integration:** `npx eai translate fr,es,ar` to generate translated locale files via Google Translate or DeepL
 - **Sync command:** detect new or changed strings and update all locale files without re-running the full pipeline
 - **Mirror locale structure:** one JSON file per screen/component mirroring the app's folder structure
 - **Common namespace:** deduplicate strings used across multiple files into a shared `common.json`

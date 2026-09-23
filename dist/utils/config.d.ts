@@ -1,21 +1,21 @@
-import { type RaiConfig } from "../types/config";
-export declare const CONFIG_FILENAME = "rai.config.ts";
+import { type eaiConfig } from "../types/config";
+export declare const CONFIG_FILENAME = "eai.config.ts";
 /**
  * Default values for every config field.
  *
  * These are merged with the user's config at load time, so any field
  * the user omits is automatically filled in with its default.
  *
- * If you add a new field to RaiConfig, add its default here too —
+ * If you add a new field to eaiConfig, add its default here too —
  * TypeScript will tell you if you forget (the type annotation enforces it).
  */
-export declare const DEFAULT_CONFIG: RaiConfig;
+export declare const DEFAULT_CONFIG: eaiConfig;
 /**
  * Returns the absolute path to the config file for a given app root.
  */
 export declare function getConfigPath(appRoot: string): string;
 /**
- * Loads and parses the user's rai.config.ts file using jiti.
+ * Loads and parses the user's eai.config.ts file using jiti.
  *
  * jiti executes TypeScript config files directly at runtime without
  * a separate compile step — the same approach used by Tailwind, Nuxt,
@@ -23,17 +23,17 @@ export declare function getConfigPath(appRoot: string): string;
  *
  * Supports two config styles:
  *
- * Style A — defineRaiConfig (recommended):
- *   import { defineRaiConfig } from 'react-auto-i18n'
- *   export default defineRaiConfig({ defaultLanguage: 'en' })
+ * Style A — defineEaiConfig (recommended):
+ *   import { defineEaiConfig } from '@autoi18n/expo'
+ *   export default defineEaiConfig({ defaultLanguage: 'en' })
  *
  * Style B — plain object with satisfies (legacy, still supported):
- *   import type { RaiConfig } from 'react-auto-i18n'
- *   export default { defaultLanguage: 'en' } satisfies Partial<RaiConfig>
+ *   import type { eaiConfig } from '@autoi18n/expo'
+ *   export default { defaultLanguage: 'en' } satisfies Partial<eaiConfig>
  *
- * Both produce the same runtime shape: { default: Partial<RaiConfig> }.
- * defineRaiConfig() returns its argument unchanged, so mod.default is
- * always a plain Partial<RaiConfig> object in both cases.
+ * Both produce the same runtime shape: { default: Partial<eaiConfig> }.
+ * defineEaiConfig() returns its argument unchanged, so mod.default is
+ * always a plain Partial<eaiConfig> object in both cases.
  *
  * After loading, user values are merged on top of DEFAULT_CONFIG so
  * any omitted field is automatically filled in with its default.
@@ -42,7 +42,7 @@ export declare function getConfigPath(appRoot: string): string;
  *
  * @param appRoot - Absolute path to the user's project root
  */
-export declare function loadConfig(appRoot: string): Promise<RaiConfig | null>;
+export declare function loadConfig(appRoot: string): Promise<eaiConfig | null>;
 /**
  * Validates a loaded config object and returns a list of error messages.
  * An empty array means the config is valid.
@@ -54,7 +54,7 @@ export declare function loadConfig(appRoot: string): Promise<RaiConfig | null>;
  *
  * @param config - The merged config object to validate
  */
-export declare function validateConfig(config: RaiConfig): string[];
+export declare function validateConfig(config: eaiConfig): string[];
 /**
  * Loads and validates the config, exiting with a clear message if anything
  * is wrong. This is the function every command calls at its start.
@@ -65,13 +65,13 @@ export declare function validateConfig(config: RaiConfig): string[];
  *
  * @param appRoot - Absolute path to the user's project root
  */
-export declare function requireConfig(appRoot: string): Promise<RaiConfig>;
+export declare function requireConfig(appRoot: string): Promise<eaiConfig>;
 /**
  * Validates that the localesDir config value is usable.
  *
  * Checks performed:
  *   1. Not an absolute path — must be relative to the app root
- *   2. No trailing slashes — cosmetic but causes confusing paths
+ *   2. No teailing slashes — cosmetic but causes confusing paths
  *   3. Parent directory exists — e.g. if localesDir is 'src/locales',
  *      the 'src' directory must already exist
  *

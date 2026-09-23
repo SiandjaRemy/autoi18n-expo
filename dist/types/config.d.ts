@@ -21,11 +21,11 @@ export type LanguageCode = (typeof SUPPORTED_LOCALES)[number];
 /**
  * Full configuration shape for react-auto-i18n.
  *
- * This is what the user exports from rai.config.ts.
- * Every field is optional via Partial<RaiConfig> in the config file
+ * This is what the user exports from eai.config.ts.
+ * Every field is optional via Partial<eaiConfig> in the config file
  * because missing fields are filled in from DEFAULT_CONFIG at runtime.
  */
-export interface RaiConfig {
+export interface eaiConfig {
     /**
      * The language your app is currently written in.
      * All strings found during scan will be stored under this language code.
@@ -74,7 +74,7 @@ export interface RaiConfig {
      */
     maxKeyLength: number;
     /**
-     * When true, adds 'use client' directive to files modified by rai replace.
+     * When true, adds 'use client' directive to files modified by eai replace.
      * Required for Next.js App Router since useTranslation() uses React context.
      * Leave false for React Native, Expo, or Next.js Pages Router projects.
      *
@@ -124,7 +124,7 @@ export interface RaiConfig {
     /**
      * Languages to generate translation files for, in addition to defaultLanguage.
      *
-     * Run `rai locales generate` after `rai scan` to create these files.
+     * Run `eai locales generate` after `eai scan` to create these files.
      * Each file starts as a copy of the default language file, ready to
      * hand off for manual translation (or to paste into an LLM/translator).
      *
@@ -137,7 +137,7 @@ export interface RaiConfig {
     /**
      * Path to your i18n setup file (the one with `i18n.use(initReactI18next).init(...)`).
      *
-     * `rai locales generate --with-imports` edits this file to import and
+     * `eai locales generate --with-imports` edits this file to import and
      * register newly generated locale files. If the file doesn't exist yet,
      * import wiring is skipped with a warning.
      *

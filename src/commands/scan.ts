@@ -14,7 +14,7 @@ interface ScanOptions {
 }
 
 /**
- * `rai scan`
+ * `eai scan`
  *
  * Scans the entire React Native project for translatable strings
  * and generates a locale JSON file for the default language.
@@ -55,7 +55,7 @@ export async function scan(options: ScanOptions): Promise<void> {
     ? `${config.localesDir}/${config.defaultLanguage}/${config.localeFileName}.json`
     : `${config.localesDir}/${config.defaultLanguage}.json`;
 
-  logger.section("rai — Scan");
+  logger.section("eai — Scan");
   if (isDryRun) logger.warn("  Dry run — no files will be written.\n");
 
   logger.info(`  App root    : ${appRoot}`);
@@ -294,6 +294,6 @@ function printNextSteps(
        ${chalk.cyan(`git commit -m "chore: add i18n locale file"`)}
 
   3. Then run:
-       ${chalk.cyan("rai replace")}
+       ${chalk.cyan("eai replace")}
   `);
 }

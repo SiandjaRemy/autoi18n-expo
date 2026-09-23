@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { logger } from "../utils/logger";
 import { writeFile } from "../utils/fs";
-import type { RaiConfig } from "../types/config";
+import type { eaiConfig } from "../types/config";
 
 /**
  * Resolves the absolute path to the i18n config file.
@@ -12,7 +12,7 @@ import type { RaiConfig } from "../types/config";
  */
 export function resolveI18nFilePath(
   appRoot: string,
-  config: RaiConfig,
+  config: eaiConfig,
 ): string {
   return path.join(appRoot, config.i18nFilePath ?? "src/i18n.ts");
 }
@@ -20,7 +20,7 @@ export function resolveI18nFilePath(
 /**
  * Generates the initial i18n.ts file with no locale imports.
  *
- * Called by `rai init`. At init time no locales exist yet, so
+ * Called by `eai init`. At init time no locales exist yet, so
  * the resources object is empty. Subsequent commands (scan,
  * locales-generate) add locale imports via updateI18nFile().
  *
@@ -28,11 +28,11 @@ export function resolveI18nFilePath(
  * initialize i18next so the app doesn't crash before locales are added.
  *
  * @param appRoot - Absolute path to the project root
- * @param config  - The loaded rai config
+ * @param config  - The loaded eai config
  */
 export function generateInitialI18nFile(
   appRoot: string,
-  config: RaiConfig,
+  config: eaiConfig,
 ): void {
   const filePath = resolveI18nFilePath(appRoot, config);
 
@@ -44,7 +44,7 @@ export function generateInitialI18nFile(
   if (fs.existsSync(filePath)) {
     logger.warn(
       `  ${config.i18nFilePath} already exists — skipping generation.\n` +
-        `  Delete it and re-run "rai init" if you want a fresh one.`,
+        `  Delete it and re-run "eai init" if you want a fresh one.`,
     );
     return;
   }
@@ -58,8 +58,8 @@ export function generateInitialI18nFile(
  * Adds a locale import to the i18n.ts file.
  *
  * Called after:
- *   - `rai scan` (adds the default language)
- *   - `rai locales-generate` (adds target languages)
+ *   - `eai scan` (adds the default language)
+ *   - `eai locales-generate` (adds target languages)
  *
  * Strategy: rather than trying to surgically patch the file with AST,
  * we rewrite it entirely from scratch using the known locale structure.
@@ -70,12 +70,12 @@ export function generateInitialI18nFile(
  * imported, then regenerate with all languages including the new one.
  *
  * @param appRoot     - Absolute path to the project root
- * @param config      - The loaded rai config
+ * @param config      - The loaded eai config
  * @param newLanguage - The language code to add e.g. 'fr'
  */
 export function addLocaleToI18nFile(
   appRoot: string,
-  config: RaiConfig,
+  config: eaiConfig,
   newLanguage: string,
 ): void {
   const filePath = resolveI18nFilePath(appRoot, config);
@@ -170,10 +170,10 @@ function extractLanguagesFromI18nFile(content: string): string[] {
  *
  * Called in two scenarios:
  *
- * A) Initial generation (from `rai init`):
+ * A) Initial generation (from `eai init`):
  *    defaultLang is '' and targetLanguages is [].
  *    No locale imports are emitted — resources is empty.
- *    The file is valid but does nothing until `rai scan` runs.
+ *    The file is valid but does nothing until `eai scan` runs.
  *
  * B) After scan or locales-generate:
  *    defaultLang is e.g. 'en' and targetLanguages may include 'fr', 'es'.
@@ -187,12 +187,12 @@ function extractLanguagesFromI18nFile(content: string): string[] {
  *                          Pass '' when generating the initial empty file.
  * @param targetLanguages - Additional language codes already generated
  *                          e.g. ['fr', 'es']. Ignored when defaultLang is ''.
- * @param config          - The full rai config (for path resolution)
+ * @param config          - The full eai config (for path resolution)
  */
 function buildI18nFileContent(
   defaultLang: string,
   targetLanguages: string[],
-  config: RaiConfig,
+  config: eaiConfig,
 ): string {
   /**
    * When defaultLang is an empty string we are generating the initial

@@ -3,7 +3,7 @@ interface ReplaceOptions {
     dryRun?: boolean;
 }
 /**
- * `rai replace`
+ * `eai replace`
  *
  * Reads the existing locale file, re-scans the project to get string
  * locations, then rewrites every source file replacing raw strings

@@ -1,4 +1,4 @@
-import type { RaiConfig } from "../types/config";
+import type { eaiConfig } from "../types/config";
 /**
  * A single translatable string found in a source file.
  *
@@ -107,7 +107,7 @@ export interface ExtractedString {
  * @param appRoot   - Absolute path to the app root (for namespace generation)
  * @param config    - The loaded i18nauto config
  */
-export declare function extractStringsFromFile(filePath: string, appRoot: string, config: RaiConfig): ExtractedString[];
+export declare function extractStringsFromFile(filePath: string, appRoot: string, config: eaiConfig): ExtractedString[];
 /**
  * Scans an entire React Native project and returns all translatable strings.
  *
@@ -123,5 +123,5 @@ export declare function extractStringsFromFile(filePath: string, appRoot: string
  * @param appRoot - Absolute path to the root of the React Native project
  * @param config  - The loaded i18nauto config
  */
-export declare function scanProject(appRoot: string, config: RaiConfig): Promise<ExtractedString[]>;
+export declare function scanProject(appRoot: string, config: eaiConfig): Promise<ExtractedString[]>;
 //# sourceMappingURL=scanner.d.ts.map

@@ -111,9 +111,9 @@ export async function runLocalesGenerate(
     logger.error(
       "No target languages specified.\n\n" +
         "  Option A — pass languages directly:\n" +
-        "    rai locales-generate --only fr,es,ar\n\n" +
+        "    eai locales-generate --only fr,es,ar\n\n" +
         "  Option B — add languages to your config and run without --only:\n" +
-        "    targetLanguages: ['fr', 'es', 'ar']  // in rai.config.ts",
+        "    targetLanguages: ['fr', 'es', 'ar']  // in eai.config.ts",
     );
     process.exit(1);
   }
@@ -151,7 +151,7 @@ export async function runLocalesGenerate(
 
   // ── Step 3: Filter out the default language ────────────────────────────────
   /**
-   * The default language already has a locale file from `rai scan`.
+   * The default language already has a locale file from `eai scan`.
    * Generating it again would overwrite the source of truth.
    * Warn and skip it rather than erroring — it's an easy mistake to make.
    */
@@ -161,14 +161,14 @@ export async function runLocalesGenerate(
   if (skippedDefault.length > 0) {
     logger.warn(
       `  Skipping "${config.defaultLanguage}" — this is your default language.\n` +
-        '  Its locale file is managed by "rai scan", not "rai locales-generate".',
+        '  Its locale file is managed by "eai scan", not "eai locales-generate".',
     );
     logger.newline();
   }
 
   /**
    * After filtering, we might have nothing left.
-   * e.g. user ran: rai locales-generate --only en
+   * e.g. user ran: eai locales-generate --only en
    */
   if (targets.length === 0) {
     logger.error("No languages to generate after filtering. Nothing to do.");
@@ -181,7 +181,7 @@ export async function runLocalesGenerate(
   if (!fs.existsSync(defaultFilePath)) {
     logger.error(
       `Default locale file not found at:\n  ${defaultFilePath}\n\n` +
-        '  Run "rai scan" first to generate it.',
+        '  Run "eai scan" first to generate it.',
     );
     process.exit(1);
   }
@@ -210,7 +210,7 @@ export async function runLocalesGenerate(
   }
 
   // ── Step 6: Generate ───────────────────────────────────────────────────────
-  logger.section("rai — Locales Generate");
+  logger.section("eai — Locales Generate");
   logger.info(
     `  Default locale : ${config.defaultLanguage} (${defaultKeyCount} keys)`,
   );
@@ -259,7 +259,7 @@ export async function runLocalesGenerate(
   if (options.withImports && !options.dryRun) {
     if (!config.i18nFilePath) {
       logger.warn(
-        "i18nFilePath not set in rai.config.ts — skipping import wiring.",
+        "i18nFilePath not set in eai.config.ts — skipping import wiring.",
       );
     } else {
       const wired = wireLocaleImports(
@@ -295,7 +295,7 @@ export async function runLocalesGenerate(
       logger.newline();
       logger.info(
         `  Once translated, wire the imports into your i18n config:\n` +
-          `    rai locales-generate --only ${targets.join(",")} --with-imports`,
+          `    eai locales-generate --only ${targets.join(",")} --with-imports`,
       );
     }
   }

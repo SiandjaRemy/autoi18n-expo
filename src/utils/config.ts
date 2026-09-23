@@ -3,7 +3,7 @@ import fs from "fs";
 import { logger } from "./logger";
 import {
   SUPPORTED_LOCALES,
-  type RaiConfig,
+  type eaiConfig,
   type LanguageCode,
 } from "../types/config";
 
@@ -11,7 +11,7 @@ import {
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const CONFIG_FILENAME = "rai.config.ts";
+export const CONFIG_FILENAME = "eai.config.ts";
 
 /**
  * Default values for every config field.
@@ -19,10 +19,10 @@ export const CONFIG_FILENAME = "rai.config.ts";
  * These are merged with the user's config at load time, so any field
  * the user omits is automatically filled in with its default.
  *
- * If you add a new field to RaiConfig, add its default here too —
+ * If you add a new field to eaiConfig, add its default here too —
  * TypeScript will tell you if you forget (the type annotation enforces it).
  */
-export const DEFAULT_CONFIG: RaiConfig = {
+export const DEFAULT_CONFIG: eaiConfig = {
   defaultLanguage: "en",
   localesDir: "locales",
   localeFileName: null,
@@ -52,7 +52,7 @@ export function getConfigPath(appRoot: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Loads and parses the user's rai.config.ts file using jiti.
+ * Loads and parses the user's eai.config.ts file using jiti.
  *
  * jiti executes TypeScript config files directly at runtime without
  * a separate compile step — the same approach used by Tailwind, Nuxt,
@@ -60,17 +60,17 @@ export function getConfigPath(appRoot: string): string {
  *
  * Supports two config styles:
  *
- * Style A — defineRaiConfig (recommended):
- *   import { defineRaiConfig } from 'react-auto-i18n'
- *   export default defineRaiConfig({ defaultLanguage: 'en' })
+ * Style A — defineEaiConfig (recommended):
+ *   import { defineEaiConfig } from '@autoi18n/expo'
+ *   export default defineEaiConfig({ defaultLanguage: 'en' })
  *
  * Style B — plain object with satisfies (legacy, still supported):
- *   import type { RaiConfig } from 'react-auto-i18n'
- *   export default { defaultLanguage: 'en' } satisfies Partial<RaiConfig>
+ *   import type { eaiConfig } from '@autoi18n/expo'
+ *   export default { defaultLanguage: 'en' } satisfies Partial<eaiConfig>
  *
- * Both produce the same runtime shape: { default: Partial<RaiConfig> }.
- * defineRaiConfig() returns its argument unchanged, so mod.default is
- * always a plain Partial<RaiConfig> object in both cases.
+ * Both produce the same runtime shape: { default: Partial<eaiConfig> }.
+ * defineEaiConfig() returns its argument unchanged, so mod.default is
+ * always a plain Partial<eaiConfig> object in both cases.
  *
  * After loading, user values are merged on top of DEFAULT_CONFIG so
  * any omitted field is automatically filled in with its default.
@@ -79,7 +79,7 @@ export function getConfigPath(appRoot: string): string {
  *
  * @param appRoot - Absolute path to the user's project root
  */
-export async function loadConfig(appRoot: string): Promise<RaiConfig | null> {
+export async function loadConfig(appRoot: string): Promise<eaiConfig | null> {
   const configPath = getConfigPath(appRoot);
 
   if (!fs.existsSync(configPath)) {
@@ -90,22 +90,22 @@ export async function loadConfig(appRoot: string): Promise<RaiConfig | null> {
     const { createJiti } = await import("jiti");
     const jiti = createJiti(configPath);
     const mod = (await jiti.import(configPath)) as {
-      default?: Partial<RaiConfig>;
+      default?: Partial<eaiConfig>;
     };
 
     /**
      * Handle both ESM (export default) and CJS (module.exports =) shapes.
      * jiti normalises most cases but we guard both for safety.
      *
-     * With defineRaiConfig:
-     *   mod.default = defineRaiConfig({ ... }) = { ... }  (plain object)
+     * With defineEaiConfig:
+     *   mod.default = defineEaiConfig({ ... }) = { ... }  (plain object)
      *
      * With satisfies:
-     *   mod.default = { ... } satisfies Partial<RaiConfig> = { ... }
+     *   mod.default = { ... } satisfies Partial<eaiConfig> = { ... }
      *
      * Both resolve to the same plain object — no special handling needed.
      */
-    const userConfig = mod.default ?? (mod as unknown as Partial<RaiConfig>);
+    const userConfig = mod.default ?? (mod as unknown as Partial<eaiConfig>);
 
     // Merge user values on top of defaults
     // Any field the user omits is filled in from DEFAULT_CONFIG
@@ -133,7 +133,7 @@ export async function loadConfig(appRoot: string): Promise<RaiConfig | null> {
  *
  * @param config - The merged config object to validate
  */
-export function validateConfig(config: RaiConfig): string[] {
+export function validateConfig(config: eaiConfig): string[] {
   const errors: string[] = [];
 
   // Validate defaultLanguage
@@ -187,13 +187,13 @@ export function validateConfig(config: RaiConfig): string[] {
  *
  * @param appRoot - Absolute path to the user's project root
  */
-export async function requireConfig(appRoot: string): Promise<RaiConfig> {
+export async function requireConfig(appRoot: string): Promise<eaiConfig> {
   const config = await loadConfig(appRoot);
 
   if (!config) {
     logger.error(
       `No ${CONFIG_FILENAME} found in ${appRoot}\n` +
-        `  Run "rai init" first to create your config file.`,
+        `  Run "eai init" first to create your config file.`,
     );
     process.exit(1);
   }
@@ -216,7 +216,7 @@ export async function requireConfig(appRoot: string): Promise<RaiConfig> {
  *
  * Checks performed:
  *   1. Not an absolute path — must be relative to the app root
- *   2. No trailing slashes — cosmetic but causes confusing paths
+ *   2. No teailing slashes — cosmetic but causes confusing paths
  *   3. Parent directory exists — e.g. if localesDir is 'src/locales',
  *      the 'src' directory must already exist
  *
@@ -241,11 +241,11 @@ export function validateLocalesDir(
     );
   }
 
-  // Strip trailing slashes — they cause double-slash in joined paths
+  // Strip teailing slashes — they cause double-slash in joined paths
   if (localesDir.endsWith("/") || localesDir.endsWith("\\")) {
     return (
-      `"localesDir" must not have a trailing slash, got "${localesDir}".\n` +
-      `  Remove the trailing slash: '${localesDir.replace(/[/\\]+$/, "")}'`
+      `"localesDir" must not have a teailing slash, got "${localesDir}".\n` +
+      `  Remove the teailing slash: '${localesDir.replace(/[/\\]+$/, "")}'`
     );
   }
 

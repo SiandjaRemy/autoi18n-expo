@@ -14,9 +14,9 @@ interface RevertOptions {
 }
 
 /**
- * `rai revert`
+ * `eai revert`
  *
- * Restores all source files to their state before `rai replace` was run.
+ * Restores all source files to their state before `eai replace` was run.
  * Uses the .i18nbak backup files created during replacement.
  *
  * Flags:
@@ -25,29 +25,29 @@ interface RevertOptions {
  *             and you're ready to commit.
  *
  * Typical workflow:
- *   rai replace          → modifies files, creates .i18nbak backups
+ *   eai replace          → modifies files, creates .i18nbak backups
  *   npx expo start       → verify the app works
  *
  *   If something's wrong:
- *     rai revert         → restores original files, deletes backups
+ *     eai revert         → restores original files, deletes backups
  *
  *   If everything's good:
- *     rai revert --clean → deletes backups only, keeps modified files
+ *     eai revert --clean → deletes backups only, keeps modified files
  *     git add . && git commit
  */
 export async function revert(options: RevertOptions): Promise<void> {
   const appRoot = path.resolve(options.path);
   const isClean = options.clean ?? false;
 
-  logger.section(`rai — ${isClean ? "Clean backups" : "Revert"}`);
+  logger.section(`eai — ${isClean ? "Clean backups" : "Revert"}`);
 
   const backupFiles = await findBackupFiles(appRoot);
 
   if (backupFiles.length === 0) {
     logger.warn("No backup files found.");
     logger.info(
-      '  Backup files (.i18nbak) are created when you run "rai replace".\n' +
-        '  If you already ran "rai revert --clean", they have been deleted.\n' +
+      '  Backup files (.i18nbak) are created when you run "eai replace".\n' +
+        '  If you already ran "eai revert --clean", they have been deleted.\n' +
         "  You can also use git to revert: git checkout .",
     );
     process.exit(0);
@@ -111,7 +111,7 @@ export async function revert(options: RevertOptions): Promise<void> {
     logger.info(
       "\n  Your source files have been reverted.\n" +
         "  The locale file was not changed.\n" +
-        '  Run "rai replace" again when ready.',
+        '  Run "eai replace" again when ready.',
     );
   }
 }

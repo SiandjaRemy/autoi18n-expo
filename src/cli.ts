@@ -4,7 +4,7 @@ import packageJson from "../package.json";
 export const APP_VERSION = packageJson.version;
 
 program
-  .name("rai")
+  .name("eai")
   .description(
     "Automatic i18n scanner and code transformer for React Native apps",
   )
@@ -25,7 +25,7 @@ program
 // ─── init ─────────────────────────────────────────────────────────────────────
 program
   .command("init")
-  .description("Generate rai.config.ts with default settings")
+  .description("Generate eai.config.ts with default settings")
   .option("-p, --path <path>", "Root path of the project", ".")
   .action(async (options) => {
     const { init } = await import("./commands/init");

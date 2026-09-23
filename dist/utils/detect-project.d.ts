@@ -1,6 +1,6 @@
 /**
  * The result of inspecting a project's structure.
- * Used by `rai init` to generate smarter config defaults.
+ * Used by `eai init` to generate smarter config defaults.
  */
 export interface ProjectProfile {
     /**
@@ -55,7 +55,7 @@ export interface ProjectProfile {
 }
 /**
  * Inspects a project's directory structure and package.json to build
- * a profile that `rai init` uses for generating smart config defaults.
+ * a profile that `eai init` uses for generating smart config defaults.
  *
  * This function never throws — all checks are safe and fall back to
  * conservative defaults if anything can't be read.

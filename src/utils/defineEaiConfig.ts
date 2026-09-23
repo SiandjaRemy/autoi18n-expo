@@ -1,4 +1,4 @@
-import type { RaiConfig } from "../types/config";
+import type { eaiConfig } from "../types/config";
 
 /**
  * Defines the configuration for react-auto-i18n.
@@ -12,15 +12,15 @@ import type { RaiConfig } from "../types/config";
  *
  * @example
  * ```ts
- * // rai.config.ts
- * import { defineRaiConfig } from 'react-auto-i18n'
+ * // eai.config.ts
+ * import { defineEaiConfig } from '@autoi18n/expo'
  *
- * export default defineRaiConfig({
+ * export default defineEaiConfig({
  *   defaultLanguage: 'en',
  *   localesDir: 'src/locales',
  * })
  * ```
  */
-export function defineRaiConfig(config: Partial<RaiConfig>): Partial<RaiConfig> {
+export function defineEaiConfig(config: Partial<eaiConfig>): Partial<eaiConfig> {
   return config;
 }

@@ -3,9 +3,9 @@ interface RevertOptions {
     clean?: boolean;
 }
 /**
- * `rai revert`
+ * `eai revert`
  *
- * Restores all source files to their state before `rai replace` was run.
+ * Restores all source files to their state before `eai replace` was run.
  * Uses the .i18nbak backup files created during replacement.
  *
  * Flags:
@@ -14,14 +14,14 @@ interface RevertOptions {
  *             and you're ready to commit.
  *
  * Typical workflow:
- *   rai replace          → modifies files, creates .i18nbak backups
+ *   eai replace          → modifies files, creates .i18nbak backups
  *   npx expo start       → verify the app works
  *
  *   If something's wrong:
- *     rai revert         → restores original files, deletes backups
+ *     eai revert         → restores original files, deletes backups
  *
  *   If everything's good:
- *     rai revert --clean → deletes backups only, keeps modified files
+ *     eai revert --clean → deletes backups only, keeps modified files
  *     git add . && git commit
  */
 export declare function revert(options: RevertOptions): Promise<void>;

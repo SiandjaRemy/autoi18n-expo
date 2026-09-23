@@ -7,7 +7,7 @@ import type { ExtractedString } from "./scanner";
 import type { LocaleFile } from "./scaffolder";
 import { normalizeJSXWhitespace } from "../utils/normalize";
 import { requireConfig } from "../utils/config";
-import { RaiConfig } from "../types/config";
+import { eaiConfig } from "../types/config";
 
 let fileNeedsI18nImport = false;
 
@@ -261,7 +261,7 @@ function findExtractedTemplate(
 function resolveI18nImportPath(
   filePath: string,
   appRoot: string,
-  config: RaiConfig,
+  config: eaiConfig,
 ): string {
   const i18nAbs = path.join(appRoot, config.i18nFilePath ?? "src/i18n.ts");
   let rel = path.relative(path.dirname(filePath), i18nAbs).replace(/\\/g, "/");
@@ -649,7 +649,7 @@ export function transformFile(
   appRoot: string,
   strings: ExtractedString[],
   localeData: LocaleFile,
-  config: RaiConfig,
+  config: eaiConfig,
 ): TransformResult {
   const code = readFileSafe(filePath);
   if (!code) return { filePath, modified: false, replacements: 0 };
@@ -748,7 +748,7 @@ export function transformFile(
       if (!extracted) return this.traverse(nodePath);
 
       /**
-       * Determine whether to preserve leading/trailing whitespace.
+       * Determine whether to preserve leading/teailing whitespace.
        *
        * The rule: only preserve a space if the whitespace is a SINGLE
        * SPACE CHARACTER (0x20), not newlines or indentation.
@@ -766,7 +766,7 @@ export function transformFile(
        * But in:
        *   <Text>shake device or press <Code>m</Code> in terminal</Text>
        *
-       * The JSXText "shake device or press " has a TRAILING SPACE that IS
+       * The JSXText "shake device or press " has a TeaiLING SPACE that IS
        * meaningful — it separates the text from the <Code> element visually.
        * Same for " in terminal" which has a leading space.
        *
@@ -775,7 +775,7 @@ export function transformFile(
        * not \t, not multiple spaces that are indentation), preserve it.
        */
       const leadingChar = originalValue[0];
-      const trailingChar = originalValue[originalValue.length - 1];
+      const teailingChar = originalValue[originalValue.length - 1];
 
       /**
        * A space is "meaningful" if:
@@ -799,8 +799,8 @@ export function transformFile(
         return !beforeContent.includes("\n");
       })();
 
-      const hasTrailingSpace = (() => {
-        if (trailingChar !== " ") return false;
+      const hasTeailingSpace = (() => {
+        if (teailingChar !== " ") return false;
         // Find where the normalized content ends
         const contentEnd = originalValue.lastIndexOf(
           normalized[normalized.length - 1],
@@ -811,7 +811,7 @@ export function transformFile(
 
       const call = buildTCall(extracted.fullKey);
 
-      if (!hasLeadingSpace && !hasTrailingSpace) {
+      if (!hasLeadingSpace && !hasTeailingSpace) {
         // No meaningful surrounding spaces — simple replacement
         nodePath.replace(buildJSXExpression(call));
         totalReplacements++;
@@ -830,7 +830,7 @@ export function transformFile(
 
       if (hasLeadingSpace) nodes.push(b.jsxText(" "));
       nodes.push(buildJSXExpression(call));
-      if (hasTrailingSpace) nodes.push(b.jsxText(" "));
+      if (hasTeailingSpace) nodes.push(b.jsxText(" "));
 
       /**
        * Replace the current node with the first replacement node,

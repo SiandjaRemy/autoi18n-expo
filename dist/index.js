@@ -23,12 +23,12 @@ var src_exports = {};
 __export(src_exports, {
   SUPPORTED_LANGUAGE_CODES: () => SUPPORTED_LANGUAGE_CODES,
   SUPPORTED_LOCALES: () => SUPPORTED_LOCALES,
-  defineRaiConfig: () => defineRaiConfig
+  defineEaiConfig: () => defineEaiConfig
 });
 module.exports = __toCommonJS(src_exports);
 
-// src/utils/defineRaiConfig.ts
-function defineRaiConfig(config) {
+// src/utils/defineEaiConfig.ts
+function defineEaiConfig(config) {
   return config;
 }
 
@@ -212,6 +212,6 @@ var SUPPORTED_LOCALES = [
 0 && (module.exports = {
   SUPPORTED_LANGUAGE_CODES,
   SUPPORTED_LOCALES,
-  defineRaiConfig
+  defineEaiConfig
 });
 //# sourceMappingURL=index.js.map

@@ -16,24 +16,24 @@ interface InitOptions {
 }
 
 /**
- * `rai init`
+ * `eai init`
  *
  * Bootstraps a project for i18n in three steps:
  *   1. Detects project structure to generate smart defaults
- *   2. Generates rai.config.ts with detected defaults
+ *   2. Generates eai.config.ts with detected defaults
  *   3. Generates the initial i18n.ts at the detected i18nFilePath
  *
  * The i18n.ts file is generated with empty resources since no locales
- * exist yet. Running `rai scan` populates it.
+ * exist yet. Running `eai scan` populates it.
  *
- * If rai.config.ts already exists, step 2 is skipped and the existing
+ * If eai.config.ts already exists, step 2 is skipped and the existing
  * config's i18nFilePath is respected for step 3.
  */
 export async function init(options: InitOptions): Promise<void> {
   const appRoot = path.resolve(options.path);
   const configPath = getConfigPath(appRoot);
 
-  logger.section("rai — Init");
+  logger.section("eai — Init");
 
   // ── Step 1: Detect project structure ──────────────────────────────────────
   /**
@@ -65,13 +65,13 @@ export async function init(options: InitOptions): Promise<void> {
     logger.info(`  use client   : enabled (Next.js detected)`);
   }
 
-  // ── Step 2: Generate rai.config.ts ────────────────────────────────────────
+  // ── Step 2: Generate eai.config.ts ────────────────────────────────────────
   logger.section("Generating config file...");
 
   if (fs.existsSync(configPath)) {
     logger.warn(
       `${CONFIG_FILENAME} already exists — skipping.\n` +
-        `  Delete it and re-run "rai init" to regenerate with detected defaults.`,
+        `  Delete it and re-run "eai init" to regenerate with detected defaults.`,
     );
   } else {
     /**
@@ -124,7 +124,7 @@ export async function init(options: InitOptions): Promise<void> {
        ${chalk.gray(`(defaultLanguage is always 'en' — update if your app uses a different language)`)}
     2. Commit the generated files
     3. Run:
-         ${chalk.cyan("rai scan")}
+         ${chalk.cyan("eai scan")}
   `);
 }
 
@@ -133,7 +133,7 @@ export async function init(options: InitOptions): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Builds the rai.config.ts file content using values from the detected
+ * Builds the eai.config.ts file content using values from the detected
  * project profile.
  *
  * Fields that vary:
@@ -149,9 +149,9 @@ export async function init(options: InitOptions): Promise<void> {
 function buildConfigContent(
   profile: ReturnType<typeof detectProjectProfile>,
 ): string {
-  return `import { defineRaiConfig } from 'react-auto-i18n'
+  return `import { defineEaiConfig } from '@autoi18n/expo'
 
-export default defineRaiConfig({
+export default defineEaiConfig({
   defaultLanguage: 'en',
   localesDir: '${profile.recommendedLocalesDir}',
   localeFileName: null,

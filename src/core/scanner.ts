@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import { readFileSafe } from "../utils/fs";
 import { logger } from "../utils/logger";
-import type { RaiConfig } from "../types/config";
+import type { eaiConfig } from "../types/config";
 import { normalizeJSXWhitespace } from "../utils/normalize";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,7 +239,7 @@ function buildNamespace(relativePathWithoutExt: string): string {
  * Steps:
  *   1. Lowercase
  *   2. Replace non-alphanumeric characters with underscores
- *   3. Trim leading/trailing underscores
+ *   3. Trim leading/teailing underscores
  *
  * @example
  *   "Hello World!"         → "hello_world"
@@ -855,7 +855,7 @@ function extractStringArgs(
 export function extractStringsFromFile(
   filePath: string,
   appRoot: string,
-  config: RaiConfig,
+  config: eaiConfig,
 ): ExtractedString[] {
   const code = readFileSafe(filePath);
   if (!code) return [];
@@ -1151,7 +1151,7 @@ export function extractStringsFromFile(
  */
 export async function scanProject(
   appRoot: string,
-  config: RaiConfig,
+  config: eaiConfig,
 ): Promise<ExtractedString[]> {
   // ── Discover files ─────────────────────────────────────────────────────────
   const files = await glob("**/*.{ts,tsx,js,jsx}", {
