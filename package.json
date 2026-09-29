@@ -1,0 +1,82 @@
+{
+  "name": "@autoi18n/expo",
+  "version": "0.1.0",
+  "description": "Automatic i18n scaffolding and code transformation for Expo apps",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "eai": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc --declaration --emitDeclarationOnly --outDir dist",
+    "dev": "tsup --watch",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "expo",
+    "react-native",
+    "i18n",
+    "internationalization",
+    "cli",
+    "automation",
+    "translation",
+    "i18next",
+    "react-i18next"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SiandjaRemy/autoi18n-expo.git"
+  },
+  "homepage": "https://github.com/SiandjaRemy/autoi18n-expo#readme",
+  "bugs": {
+    "url": "https://github.com/SiandjaRemy/autoi18n-expo/issues"
+  },
+  "peerDependencies": {
+    "i18next": ">=23.0.0",
+    "react-i18next": ">=14.0.0"
+  },
+  "peerDependenciesMeta": {
+    "i18next": {
+      "optional": false
+    },
+    "react-i18next": {
+      "optional": false
+    }
+  },
+  "dependencies": {
+    "@babel/generator": "^7.26.5",
+    "@babel/parser": "^7.26.5",
+    "@babel/traverse": "^7.26.5",
+    "@babel/types": "^7.26.5",
+    "@inquirer/prompts": "^5.5.0",
+    "chalk": "^4.1.2",
+    "commander": "^15.0.0",
+    "glob": "^13.0.6",
+    "ignore": "^7.0.10",
+    "jiti": "^2.7.0",
+    "ora": "^5.4.1",
+    "recast": "^0.24.0"
+  },
+  "devDependencies": {
+    "@types/babel__core": "^7.20.5",
+    "@types/babel__generator": "^7.27.0",
+    "@types/babel__traverse": "^7.28.0",
+    "@types/node": "^26.6.3",
+    "rimraf": "^6.1.3",
+    "ts-node": "^10.9.2",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "tmp": "0.2.7",
+    "esbuild": "0.28.1"
+  }
+}
