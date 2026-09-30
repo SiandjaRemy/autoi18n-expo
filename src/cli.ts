@@ -33,4 +33,16 @@ program
     await init(options);
   });
 
+// ─── scan ─────────────────────────────────────────────────────────────────────
+program
+  .command("scan")
+  .description("Scan the app and generate locale files")
+  .option("-p, --path <path>", "Root path of the project", ".")
+  .option("--dry-run", "Preview without writing files")
+  .action(async (options) => {
+    const { scan } = await import("./commands/scan");
+    await scan(options);
+  });
+
+
 program.parse(process.argv);

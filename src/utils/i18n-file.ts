@@ -263,7 +263,7 @@ function buildI18nFileContent(
    */
   const resourcesEntries = hasLocales
     ? allLanguages
-        .map((lang) => `    ${lang}: { translation: ${lang} },`)
+        .map((lang) => `${lang}: { translation: ${lang} },`)
         .join("\n")
     : "";
 
@@ -293,7 +293,9 @@ function buildI18nFileContent(
   return `${importBlock}
 
 i18n.use(initReactI18next).init({
-  resources: {${resourcesEntries}},
+  resources: {
+    ${resourcesEntries}
+  },
   lng: '${activeLang}',
   fallbackLng: '${activeLang}',
   interpolation: {
