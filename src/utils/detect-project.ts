@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { isExpoProject } from "./prompt";
 
 /**
  * The result of inspecting a project's structure.
@@ -61,13 +62,7 @@ export function detectProjectProfile(appRoot: string): ProjectProfile {
   let isExpo = false;
 
   try {
-    const pkgPath = path.join(appRoot, "package.json");
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-    const allDeps = {
-      ...pkg.dependencies,
-      ...pkg.devDependencies,
-    };
-    isExpo = "expo" in allDeps;
+    isExpo = isExpoProject(appRoot);
   } catch {
     // package.json missing or malformed — use defaults
   }
