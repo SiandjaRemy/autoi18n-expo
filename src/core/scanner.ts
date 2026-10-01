@@ -99,7 +99,8 @@ export interface ExtractedString {
     | "jsx-attribute"
     | "alert"
     | "throw"
-    | "call";
+    | "call"
+    | "return";
 
   /**
    * The JSX prop name this string was found in.
@@ -343,6 +344,75 @@ function isExtractable(value: string): boolean {
 }
 
 /**
+ * Stricter check for strings found in return statements.
+ * JSX / Alert / throw already have high signal; returns do not.
+ */
+function isLikelyUiCopy(value: string): boolean {
+  const trimmed = value.trim();
+
+  // Must still pass the general rules
+  if (!isExtractable(trimmed)) return false;
+
+  // Single token with no spaces → usually a code value ("light", "pending")
+  // Allow a small set of real UI labels
+  if (!/\s/.test(trimmed)) {
+    const UI_SINGLE_WORDS = new Set([
+      "submit",
+      "cancel",
+      "confirm",
+      "delete",
+      "save",
+      "close",
+      "continue",
+      "back",
+      "next",
+      "done",
+      "ok",
+      "yes",
+      "no",
+      "loading",
+      "error",
+      "success",
+      "retry",
+      "search",
+    ]);
+    if (!UI_SINGLE_WORDS.has(trimmed.toLowerCase())) {
+      return false;
+    }
+  }
+
+  // Known technical tokens (extend as needed)
+  const TECHNICAL = new Set([
+    "light",
+    "dark",
+    "system",
+    "auto",
+    "pending",
+    "completed",
+    "failed",
+    "active",
+    "inactive",
+    "credit",
+    "debit",
+    "row",
+    "column",
+    "center",
+    "left",
+    "right",
+  ]);
+  if (TECHNICAL.has(trimmed.toLowerCase())) return false;
+
+  return true;
+}
+
+/** true if every interpolation is a simple identifier: ${name} */
+function templateHasOnlyIdentifierExpressions(
+  node: t.TemplateLiteral,
+): boolean {
+  return node.expressions.every((expr) => t.isIdentifier(expr));
+}
+
+/**
  * Heuristic to detect NativeWind/Tailwind className strings.
  *
  * If more than half of the space-separated tokens match CSS utility
@@ -455,14 +525,18 @@ function extractFromExpression(
   filePath: string,
   maxKeyLen: number,
   sourceType: ExtractedString["sourceType"],
+  strictUiCopy = false,
 ): void {
   if (!expr || t.isJSXEmptyExpression(expr)) return;
 
+  const passes = (value: string) =>
+    strictUiCopy ? isLikelyUiCopy(value) : isExtractable(value);
+
   // ── String literal ─────────────────────────────────────────────────────────
   if (t.isStringLiteral(expr)) {
-    if (!isExtractable(expr.value)) return;
-
+    if (!passes(expr.value)) return; // ← was isExtractable(expr.value)
     const { key, fullKey } = buildFullKey(namespace, expr.value, maxKeyLen);
+
     results.push({
       filePath,
       namespace,
@@ -478,27 +552,25 @@ function extractFromExpression(
 
   // ── Template literal ───────────────────────────────────────────────────────
   if (t.isTemplateLiteral(expr)) {
-    const { text, params } = processTemplateLiteral(expr);
-    if (!isExtractable(text)) return;
+    if (templateHasOnlyIdentifierExpressions(expr)) {
+      const { text, params } = processTemplateLiteral(expr);
+      if (!isExtractable(text)) return;
 
-    const { key, fullKey } = buildFullKey(namespace, text, maxKeyLen);
-    results.push({
-      filePath,
-      namespace,
-      key,
-      fullKey,
-      originalText: text,
-      translationValue: text,
-      params,
-      sourceType,
-    });
+      const { key, fullKey } = buildFullKey(namespace, text, maxKeyLen);
+      results.push({
+        filePath,
+        namespace,
+        key,
+        fullKey,
+        originalText: text,
+        translationValue: text,
+        params,
+        sourceType,
+      });
+      return;
+    }
 
-    /**
-     * Recurse into template expressions.
-     * `Count: ${count} ${count === 1 ? 'item' : 'items'}`
-     * The strings "item" and "items" inside the ternary would be missed
-     * without this recursion.
-     */
+    // e.g. `${sign}$${abs} ${type === "credit" ? "received" : "sent"}`
     for (const subExpr of expr.expressions) {
       extractFromExpression(
         subExpr as t.Expression,
@@ -512,10 +584,11 @@ function extractFromExpression(
     return;
   }
 
-  // ── Ternary ────────────────────────────────────────────────────────────────
-  // condition ? "yes" : "no"
-  // Recurse into both branches — NOT the condition (that's logic, not text)
+  // ── Ternary (conditional expression) ──────────────────────────────────────
+  // condition ? "yes string" : "no string"
   if (t.isConditionalExpression(expr)) {
+    // We recurse into both branches but NOT the condition
+    // (the condition is logic, not user-visible text)
     extractFromExpression(
       expr.consequent,
       results,
@@ -523,6 +596,7 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     extractFromExpression(
       expr.alternate,
@@ -531,12 +605,13 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     return;
   }
 
   // ── Logical expression (&&, ||, ??) ───────────────────────────────────────
-  // flag && "Show this text"
+  // flag && "Show this"
   // value || "Default text"
   if (t.isLogicalExpression(expr)) {
     extractFromExpression(
@@ -546,6 +621,7 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     extractFromExpression(
       expr.right,
@@ -554,8 +630,61 @@ function extractFromExpression(
       filePath,
       maxKeyLen,
       sourceType,
+      strictUiCopy,
     );
     return;
+  }
+
+  // Other expression types (identifiers, member access, function calls, etc.)
+  // are not translatable strings on their own — stop recursing.
+}
+
+/**
+ * Walks the 3rd argument of Alert.alert (buttons array) and extracts
+ * every `text` property that holds user-visible copy.
+ *
+ * Handles:
+ *   [{ text: "Cancel" }, { text: "OK" }]
+ *   [{ text: condition ? "Yes" : "No" }]
+ *
+ * Ignores:
+ *   style, onPress, spreads, non-object elements
+ */
+function extractAlertButtonTexts(
+  buttonsArg: t.Node,
+  results: ExtractedString[],
+  namespace: string,
+  filePath: string,
+  maxKeyLen: number,
+): void {
+  if (!t.isArrayExpression(buttonsArg)) return;
+
+  for (const element of buttonsArg.elements) {
+    if (!element || !t.isObjectExpression(element)) continue;
+
+    for (const prop of element.properties) {
+      // Skip spreads: { ...btn }
+      if (!t.isObjectProperty(prop) && !t.isProperty(prop)) continue;
+
+      const key = prop.key;
+      const propName = t.isIdentifier(key)
+        ? key.name
+        : t.isStringLiteral(key)
+          ? key.value
+          : null;
+
+      if (propName !== "text") continue;
+      if (prop.computed) continue; // text: dynamicKey — skip
+
+      extractFromExpression(
+        prop.value as t.Expression,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        "alert",
+      );
+    }
   }
 }
 
@@ -759,31 +888,67 @@ export function extractStringsFromFile(
       });
     },
 
-    // ── 4. Alert.alert() and custom call patterns ────────────────────────────
+    // ── 4. Alert.alert() and custom call patterns ─────────────────────────────
+    //
     // Alert.alert('Title', 'Message')
-    // Alert.alert(isEnabled ? 'Disable' : 'Enable', 'Are you sure?')
-    // toast.show('Saved successfully')
+    // Alert.alert(enabled ? 'Disable' : 'Enable', 'Are you sure?', [
+    //   { text: 'Cancel', style: 'cancel' },
+    //   { text: 'OK' },
+    // ])
+    // toast.show('Saved successfully')  // via customDetectCalls
+    //
     CallExpression(nodePath) {
-      if (!config.detectAlerts && !customCallPatterns.size) return;
+      if (!config.detectAlerts && customCallPatterns.size === 0) return;
 
       const calleeName = getCalleeName(nodePath.node);
       if (!calleeName) return;
 
-      const isAlert = config.detectAlerts && calleeName === "Alert.alert";
-      const isCustom = customCallPatterns.has(calleeName);
+      // ── Alert.alert ─────────────────────────────────────────────────────────
+      if (config.detectAlerts && calleeName === "Alert.alert") {
+        const args = nodePath.node.arguments;
 
-      if (!isAlert && !isCustom) return;
+        // Title (0) and message (1): literals, templates, ternaries, logicals
+        for (let i = 0; i < Math.min(args.length, 2); i++) {
+          const arg = args[i];
+          if (!arg || arg.type === "SpreadElement") continue;
 
-      extractStringArgs(
-        nodePath.node.arguments,
-        results,
-        namespace,
-        filePath,
-        maxKeyLen,
-        isAlert ? "alert" : "call",
-      );
+          extractFromExpression(
+            arg as t.Expression,
+            results,
+            namespace,
+            filePath,
+            maxKeyLen,
+            "alert",
+          );
+        }
+
+        // Buttons array (2): [{ text: "Cancel" }, ...]
+        if (args.length >= 3) {
+          extractAlertButtonTexts(
+            args[2],
+            results,
+            namespace,
+            filePath,
+            maxKeyLen,
+          );
+        }
+        return;
+      }
+
+      // ── customDetectCalls (toast.show, setError, …) ─────────────────────────
+      // Top-level string literal args only (same as before)
+      if (customCallPatterns.has(calleeName)) {
+        extractStringArgs(
+          nodePath.node.arguments,
+          results,
+          namespace,
+          filePath,
+          maxKeyLen,
+          "call",
+        );
+      }
     },
-
+    
     // ── 5. Throw statements ──────────────────────────────────────────────────
     // throw new Error('Failed to save item')
     // throw new Error(condition ? 'Error A' : 'Error B')
@@ -827,6 +992,19 @@ export function extractStringsFromFile(
           sourceType: "throw",
         });
       }
+    },
+
+    // ── 5. Return statements ──────────────────────────────────────────────────
+    ReturnStatement(nodePath) {
+      extractFromExpression(
+        nodePath.node.argument as t.Expression,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        "return", // or a new sourceType e.g. "return"
+        true, // ← strictUiCopy
+      );
     },
   });
 

@@ -44,5 +44,15 @@ program
     await scan(options);
   });
 
+// ─── replace ──────────────────────────────────────────────────────────────────
+program
+  .command("replace")
+  .description("Replace raw strings in source files with t() calls")
+  .option("-p, --path <path>", "Root path of the project", ".")
+  .option("--dry-run", "Preview without writing files")
+  .action(async (options) => {
+    const { replace } = await import("./commands/replace");
+    await replace(options);
+  });
 
 program.parse(process.argv);
