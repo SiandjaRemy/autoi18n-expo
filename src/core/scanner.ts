@@ -9,6 +9,7 @@ import { readFileSafe } from "../utils/fs";
 import { logger } from "../utils/logger";
 import type { EaiConfig } from "../types/config";
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -948,7 +949,7 @@ export function extractStringsFromFile(
         );
       }
     },
-    
+
     // ── 5. Throw statements ──────────────────────────────────────────────────
     // throw new Error('Failed to save item')
     // throw new Error(condition ? 'Error A' : 'Error B')

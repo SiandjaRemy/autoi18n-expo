@@ -1,5 +1,5 @@
 import path from "path";
-import { writeJson, ensureDir } from "../utils/fs";
+import { writeJson, ensureDir, exists, readJson } from "../utils/fs";
 import { logger } from "../utils/logger";
 import type { ExtractedString } from "./scanner";
 
@@ -46,48 +46,108 @@ export function resolveLocaleFilePath(
   return path.join(localesDir, `${lang}.json`);
 }
 
+/** Scan results → flat locale map (first occurrence wins). */
+export function buildLocaleFromStrings(strings: ExtractedString[]): LocaleFile {
+  const content: LocaleFile = {};
+  for (const s of strings) {
+    if (content[s.fullKey] === undefined) {
+      content[s.fullKey] = s.translationValue;
+    }
+  }
+  return content;
+}
+
 /**
- * Generates the locale JSON file for the default language.
+ * Merge scan output into an existing locale file.
+ * - New keys from scan are added
+ * - Existing keys keep their current values (manual translations safe)
+ * - Keys only in existing are kept unless prune is true
+ */
+export function mergeLocaleData(
+  existing: LocaleFile,
+  fromScan: LocaleFile,
+  options: { prune?: boolean } = {},
+): { merged: LocaleFile; added: string[]; removed: string[] } {
+  const added: string[] = [];
+  const removed: string[] = [];
+
+  const merged: LocaleFile = options.prune ? {} : { ...existing };
+
+  if (options.prune) {
+    for (const key of Object.keys(existing)) {
+      if (key in fromScan) {
+        merged[key] = existing[key];
+      } else {
+        removed.push(key);
+      }
+    }
+  }
+
+  for (const [key, value] of Object.entries(fromScan)) {
+    if (!(key in merged)) {
+      merged[key] = value;
+      added.push(key);
+    }
+  }
+
+  return { merged, added, removed };
+}
+
+function sortLocale(data: LocaleFile): LocaleFile {
+  return Object.fromEntries(
+    Object.entries(data).sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+/**
+ * Generates or updates the locale JSON for the default language.
+ *
+ * Default: merge with existing file (add-only).
+ * prune: drop keys not present in this scan (use with care after replace).
  *
  * @param strings        - All extracted strings from scanProject()
  * @param lang           - Language code e.g. "en"
  * @param localesDir     - Absolute path to the locales directory
  * @param localeFileName - Custom file name from config, or null for default
+ * @param options        - Pruning options
  */
 export async function generateLocaleFile(
   strings: ExtractedString[],
   lang: string,
   localesDir: string,
   localeFileName: string | null,
-): Promise<{ filePath: string; keyCount: number }> {
+  options: { prune?: boolean } = {},
+): Promise<{
+  filePath: string;
+  keyCount: number;
+  added: number;
+  removed: number;
+  isNewFile: boolean;
+}> {
   ensureDir(localesDir);
 
-  const content: LocaleFile = {};
-
-  for (const s of strings) {
-    content[s.fullKey] = s.translationValue;
-  }
-
-  /**
-   * Sort keys alphabetically so strings from the same namespace
-   * (same source file) are grouped together in the output.
-   */
-  const sortedContent = Object.fromEntries(
-    Object.entries(content).sort(([a], [b]) => a.localeCompare(b)),
-  );
-
   const filePath = resolveLocaleFilePath(localesDir, lang, localeFileName);
+  const fromScan = buildLocaleFromStrings(strings);
 
-  /**
-   * ensureDir is called again here because when localeFileName is set,
-   * the file goes inside a subdirectory (locales/en/) that may not
-   * exist yet. resolveLocaleFilePath already handles the path —
-   * writeJson calls fs.mkdirSync recursively so this is covered,
-   * but being explicit here makes the intent clear.
-   */
+  const isNewFile = !exists(filePath);
+  const existing: LocaleFile = isNewFile
+    ? {}
+    : (readJson<LocaleFile>(filePath) ?? {});
+
+  const { merged, added, removed } = mergeLocaleData(existing, fromScan, {
+    prune: options.prune ?? false,
+  });
+
+  const sortedContent = sortLocale(merged);
   writeJson(filePath, sortedContent);
 
-  return { filePath, keyCount: Object.keys(sortedContent).length };
+  return {
+    filePath,
+    keyCount: Object.keys(sortedContent).length,
+    added: added.length,
+    removed: removed.length,
+    isNewFile,
+  };
 }
 
 /**
@@ -104,12 +164,11 @@ export function readLocaleFile(
   localeFileName: string | null,
 ): LocaleFile {
   const filePath = resolveLocaleFilePath(localesDir, lang, localeFileName);
-  try {
-    const fs = require("fs");
-    if (!fs.existsSync(filePath)) return {};
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as LocaleFile;
-  } catch {
+  if (!exists(filePath)) return {};
+  const data = readJson<LocaleFile>(filePath);
+  if (!data) {
     logger.warn(`Could not read locale file: ${filePath}`);
     return {};
   }
+  return data;
 }

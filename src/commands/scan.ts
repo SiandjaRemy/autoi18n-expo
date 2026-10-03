@@ -14,8 +14,8 @@ import { confirm } from "../utils/prompt";
 interface ScanOptions {
   path: string;
   dryRun?: boolean;
+  prune?: boolean;
 }
-
 /**
  * `eai scan`
  *
@@ -28,13 +28,17 @@ interface ScanOptions {
  *   3. Scan all source files using AST
  *   4. Show preview table grouped by namespace
  *   5. Ask for confirmation before writing
- *   6. Write the locale JSON file
+ *   6. Write the locale JSON file (merge with existing by default)
  *   7. Update i18n.ts with the default locale import
  *   8. Print next steps
+ *
+ * Re-running scan after replace is safe: existing keys are kept and only
+ * new keys from the current scan are added, unless --prune is passed.
  */
 export async function scan(options: ScanOptions): Promise<void> {
   const appRoot = path.resolve(options.path);
   const isDryRun = options.dryRun ?? false;
+  const prune = options.prune ?? false;
 
   // ── Step 1: Load config ───────────────────────────────────────────────────
   const config = await requireConfig(appRoot);
@@ -61,6 +65,11 @@ export async function scan(options: ScanOptions): Promise<void> {
 
   logger.section("eai — Scan");
   if (isDryRun) logger.warn("  Dry run — no files will be written.\n");
+  if (prune) {
+    logger.warn(
+      "  --prune enabled: keys not found in this scan will be removed from the locale file.\n",
+    );
+  }
 
   logger.info(`  App root    : ${appRoot}`);
   logger.info(`  Language    : ${config.defaultLanguage}`);
@@ -70,6 +79,9 @@ export async function scan(options: ScanOptions): Promise<void> {
   );
   logger.info(
     `  Throws      : ${config.detectThrows ? "detected" : "ignored"}`,
+  );
+  logger.info(
+    `  Merge mode  : ${prune ? "prune missing keys" : "add new keys only (keep existing)"}`,
   );
 
   if (config.customDetectCalls.length > 0) {
@@ -96,7 +108,9 @@ export async function scan(options: ScanOptions): Promise<void> {
       "  Things to check:\n" +
         "    • Is --path pointing to your Expo project root?\n" +
         "    • Does your app have <Text> components with content?\n" +
-        "    • Are the relevant files excluded by your config or .gitignore?",
+        "    • Are the relevant files excluded by your config or .gitignore?\n" +
+        "    • After replace, most copy lives in the locale file — " +
+        "scan only finds remaining hardcoded strings (existing keys are still kept unless --prune).",
     );
     process.exit(0);
   }
@@ -108,14 +122,20 @@ export async function scan(options: ScanOptions): Promise<void> {
   if (isDryRun) {
     logger.newline();
     logger.warn("Dry run complete — no files written.");
-    logger.info("  Remove --dry-run to generate the locale file.");
+    logger.info("  Remove --dry-run to generate or update the locale file.");
     process.exit(0);
   }
 
   // ── Step 5: Confirm ───────────────────────────────────────────────────────
   logger.newline();
+  /**
+   * Confirm wording reflects merge behaviour so users do not think
+   * the entire locale file will be replaced by only this scan's keys.
+   */
   const shouldProceed = await confirm(
-    `Write ${strings.length} keys to ${outputPreview}?`,
+    prune
+      ? `Update ${outputPreview} from ${strings.length} scanned string(s) (prune missing keys)?`
+      : `Update ${outputPreview} from ${strings.length} scanned string(s) (add new keys, keep existing)?`,
   );
 
   if (!shouldProceed) {
@@ -124,18 +144,41 @@ export async function scan(options: ScanOptions): Promise<void> {
   }
 
   // ── Step 6: Write locale file ─────────────────────────────────────────────
+  /**
+   * generateLocaleFile merges into any existing locale JSON by default:
+   *   - new keys from this scan are added
+   *   - existing keys keep their current values
+   *   - keys not found in this scan are kept unless prune is true
+   *
+   * That way re-running scan after replace (or after improving the scanner)
+   * does not wipe translations that are no longer present as string literals.
+   */
   logger.section("Generating locale file...");
 
-  const { filePath, keyCount } = await generateLocaleFile(
-    strings,
-    config.defaultLanguage,
-    localesDir,
-    config.localeFileName,
-  );
+  const { filePath, keyCount, added, removed, isNewFile } =
+    await generateLocaleFile(
+      strings,
+      config.defaultLanguage,
+      localesDir,
+      config.localeFileName,
+      { prune },
+    );
 
-  logger.success(
-    `Generated ${path.relative(appRoot, filePath)} with ${keyCount} keys`,
-  );
+  const relativeLocale = path.relative(appRoot, filePath);
+
+  if (isNewFile) {
+    logger.success(`Created ${relativeLocale} with ${keyCount} key(s)`);
+  } else {
+    logger.success(`Updated ${relativeLocale} — ${keyCount} key(s) total`);
+    logger.info(`  Added   : ${added}`);
+    if (prune) {
+      logger.info(`  Removed : ${removed}`);
+    } else {
+      logger.dim(
+        "  Existing keys not found in this scan were kept (pass --prune to remove them).",
+      );
+    }
+  }
 
   // ── Step 7: Update i18n.ts ────────────────────────────────────────────────
   /**
@@ -153,7 +196,6 @@ export async function scan(options: ScanOptions): Promise<void> {
   // ── Step 8: Next steps ────────────────────────────────────────────────────
   printNextSteps(appRoot, config);
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Preview table
 // ─────────────────────────────────────────────────────────────────────────────
