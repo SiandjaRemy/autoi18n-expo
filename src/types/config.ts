@@ -381,4 +381,11 @@ export interface EaiConfig {
    * @default 'src/i18n.ts'
    */
   i18nFilePath: string;
+
+  /**
+   * Prefix added to unsynced values in target locale files.
+   * Makes untranslated strings easy to find with Ctrl+F.
+   * @default '[UNTRANSLATED]'
+   */
+  unsyncedPrefix: string;
 }

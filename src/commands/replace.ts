@@ -205,11 +205,10 @@ export async function replace(options: ReplaceOptions): Promise<void> {
        ${chalk.cyan('git commit -m "feat: replace strings with i18n t() calls"')}
 
   4. ${chalk.bold("Add other languages")}
-       ${chalk.cyan("eai locales-generate --only fr,es --with-imports")}
+       ${chalk.cyan("eai locales-generate")}
 
        Flags:
          ${chalk.gray("--only fr,es")}      languages to generate
-         ${chalk.gray("--with-imports")}  wire i18n.ts ${chalk.green("(recommended)")}
          ${chalk.gray("--force")}         overwrite existing locale files
          ${chalk.gray("--dry-run")}       preview only
 
