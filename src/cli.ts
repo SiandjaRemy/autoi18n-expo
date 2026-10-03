@@ -121,4 +121,32 @@ program
     await localesSync(options);
   });
 
+// ─── locales-delete ───────────────────────────────────────────────────────────
+program
+  .command("locales-delete")
+  .description("Delete generated locale files and remove them from i18n.ts")
+  .option("-p, --path <path>", "Project root", ".")
+  .option(
+    "--only <langs>",
+    "Comma-separated language codes to delete (default: all except defaultLanguage)",
+  )
+  .option("--dry-run", "Preview without deleting")
+  .option("--yes", "Skip confirmation")
+  .action(async (opts) => {
+    const only = opts.only
+      ? String(opts.only)
+          .split(",")
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+      : undefined;
+
+    const { localesDelete } = await import("./commands/locales-delete");
+    await localesDelete({
+      path: opts.path,
+      only,
+      dryRun: opts.dryRun,
+      yes: opts.yes,
+    });
+  });
+
 program.parse(process.argv);

@@ -56,6 +56,14 @@ function isHelperFunction(node: any, parent: any): boolean {
   return false;
 }
 
+function registerComponent(nodePath: any, componentBlocks: Set<any>): void {
+  const node = nodePath.node;
+  const parent = nodePath.parent?.node;
+  if (isComponentFunction(node, parent)) {
+    componentBlocks.add(node.body);
+  }
+}
+
 function isNestedInsideComponent(nodePath: any): boolean {
   let current = nodePath.parent;
 
@@ -83,12 +91,6 @@ function getHelperName(node: any, parent: any): string | null {
     return parent.id.name;
   }
   return null;
-}
-
-function alreadyHasTParam(node: any): boolean {
-  return node.params?.some(
-    (p: any) => p.type === "Identifier" && p.name === "t",
-  );
 }
 
 // ─── AST builders ───────────────────────────────────────────────────────────
@@ -153,25 +155,6 @@ function buildUseTranslationCall(): any {
       b.callExpression(b.identifier("useTranslation"), []),
     ),
   ]);
-}
-
-function buildTFunctionImport(): any {
-  return b.importDeclaration(
-    [b.importSpecifier(b.identifier("TFunction"), b.identifier("TFunction"))],
-    b.literal("i18next"),
-  );
-}
-
-function buildTFunctionParam(): any {
-  const param = b.identifier("t");
-  param.typeAnnotation = {
-    type: "TSTypeAnnotation",
-    typeAnnotation: {
-      type: "TSTypeReference",
-      typeName: { type: "Identifier", name: "TFunction" },
-    },
-  } as any;
-  return param;
 }
 
 // ─── Lookup ─────────────────────────────────────────────────────────────────
@@ -494,21 +477,6 @@ function replaceAlertButtonsArg(
   return count;
 }
 
-function functionBodyContainsTCall(block: any): boolean {
-  if (!block || block.type !== "BlockStatement") return false;
-  let found = false;
-  visit(block, {
-    visitCallExpression(p) {
-      if (p.node.callee?.type === "Identifier" && p.node.callee.name === "t") {
-        found = true;
-        return false;
-      }
-      this.traverse(p);
-    },
-  });
-  return found;
-}
-
 // ─── File transform ─────────────────────────────────────────────────────────
 
 export function transformFile(
@@ -720,28 +688,38 @@ export function transformFile(
     visitThrowStatement(nodePath) {
       const { argument } = nodePath.node;
       if (
-        argument?.type === "NewExpression" &&
-        argument.callee?.type === "Identifier" &&
-        (argument.callee as any).name === "Error"
+        argument?.type !== "NewExpression" ||
+        argument.callee?.type !== "Identifier" ||
+        argument.callee.name !== "Error"
       ) {
-        argument.arguments.forEach((arg: any, index: number) => {
-          if (
-            (arg.type !== "StringLiteral" && arg.type !== "Literal") ||
-            typeof arg.value !== "string"
-          ) {
-            return;
-          }
-          const extracted = findExtracted(
-            arg.value,
-            filePath,
-            fileStrings,
-            "throw",
-          );
-          if (!extracted) return;
-          argument.arguments[index] = buildTCall(extracted.fullKey);
-          totalReplacements++;
-        });
+        return this.traverse(nodePath);
       }
+
+      const useI18nInstance = !isNestedInsideComponent(nodePath);
+
+      argument.arguments.forEach((arg: any, index: number) => {
+        if (
+          (arg.type !== "StringLiteral" && arg.type !== "Literal") ||
+          typeof arg.value !== "string"
+        ) {
+          return;
+        }
+        const extracted = findExtracted(
+          arg.value,
+          filePath,
+          fileStrings,
+          "throw",
+        );
+        if (!extracted) return;
+
+        argument.arguments[index] = buildCallForExtracted(
+          extracted,
+          useI18nInstance,
+        );
+        totalReplacements++;
+        if (useI18nInstance) fileNeedsI18nImport = true;
+      });
+
       this.traverse(nodePath);
     },
 
@@ -766,47 +744,23 @@ export function transformFile(
     },
 
     visitFunctionDeclaration(nodePath) {
-      registerFunction(nodePath, componentBlocks, helpersNeedingT);
+      registerComponent(nodePath, componentBlocks);
       this.traverse(nodePath);
     },
+
     visitFunctionExpression(nodePath) {
-      registerFunction(nodePath, componentBlocks, helpersNeedingT);
+      registerComponent(nodePath, componentBlocks);
       this.traverse(nodePath);
     },
+
     visitArrowFunctionExpression(nodePath) {
-      registerFunction(nodePath, componentBlocks, helpersNeedingT);
+      registerComponent(nodePath, componentBlocks);
       this.traverse(nodePath);
     },
   });
 
   if (totalReplacements === 0) {
     return { filePath, modified: false, replacements: 0 };
-  }
-
-  for (const [name, funcNode] of helpersNeedingT) {
-    if (functionBodyContainsTCall(funcNode.body)) helperNamesWithT.add(name);
-  }
-
-  for (const name of helperNamesWithT) {
-    const funcNode = helpersNeedingT.get(name);
-    if (!funcNode || alreadyHasTParam(funcNode)) continue;
-    funcNode.params.push(buildTFunctionParam());
-  }
-
-  if (helperNamesWithT.size > 0) {
-    visit(ast, {
-      visitCallExpression(nodePath) {
-        const { callee, arguments: args } = nodePath.node;
-        if (callee.type !== "Identifier") return this.traverse(nodePath);
-        const calleeName = (callee as any).name;
-        if (!helperNamesWithT.has(calleeName)) return this.traverse(nodePath);
-        const lastArg = args[args.length - 1];
-        if (!(lastArg?.type === "Identifier" && lastArg.name === "t")) {
-          nodePath.node.arguments.push(b.identifier("t"));
-        }
-        this.traverse(nodePath);
-      },
-    });
   }
 
   for (const block of componentBlocks) {
@@ -819,15 +773,6 @@ export function transformFile(
       "react-i18next",
       "useTranslation",
       buildUseTranslationImport,
-    );
-  }
-
-  if (helperNamesWithT.size > 0) {
-    addNamedImport(
-      ast.program.body,
-      "i18next",
-      "TFunction",
-      buildTFunctionImport,
     );
   }
 
@@ -847,24 +792,6 @@ export function transformFile(
     replacements: totalReplacements,
     newCode: recast.print(ast).code,
   };
-}
-
-function registerFunction(
-  nodePath: any,
-  componentBlocks: Set<any>,
-  helpersNeedingT: Map<string, any>,
-): void {
-  const node = nodePath.node;
-  const parent = nodePath.parent?.node;
-  if (isComponentFunction(node, parent)) {
-    componentBlocks.add(node.body);
-  } else if (
-    isHelperFunction(node, parent) &&
-    !isNestedInsideComponent(nodePath)
-  ) {
-    const name = getHelperName(node, parent);
-    if (name) helpersNeedingT.set(name, node);
-  }
 }
 
 export async function transformProject(

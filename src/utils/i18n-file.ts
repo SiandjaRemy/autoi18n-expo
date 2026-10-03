@@ -144,7 +144,7 @@ export function addLocaleToI18nFile(
  *
  * @param content - The current content of the i18n.ts file
  */
-function extractLanguagesFromI18nFile(content: string): string[] {
+export function extractLanguagesFromI18nFile(content: string): string[] {
   /**
    * Match lines like:
    *   import en from '...'
@@ -195,7 +195,7 @@ function extractLanguagesFromI18nFile(content: string): string[] {
  *                          e.g. ['fr', 'es']. Ignored when defaultLang is ''.
  * @param config          - The full eai config (for path resolution)
  */
-function buildI18nFileContent(
+export function buildI18nFileContent(
   defaultLang: string,
   targetLanguages: string[],
   config: EaiConfig,
