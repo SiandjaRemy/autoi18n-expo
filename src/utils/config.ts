@@ -33,6 +33,7 @@ export const DEFAULT_CONFIG: EaiConfig = {
   exclude: [],
   targetLanguages: [],
   i18nFilePath: "src/i18n.ts",
+  unsyncedPrefix: "[UNTRANSLATED]",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

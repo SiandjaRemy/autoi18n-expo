@@ -8,8 +8,9 @@ import { scanProject, type ExtractedString } from "../core/scanner";
 import { addLocaleToI18nFile } from "../utils/i18n-file";
 import { validateLocalesDir } from "../utils/config";
 import { EaiConfig } from "../types/config";
-import { generateLocaleFile } from "../core/scaffolder";
+import { generateLocaleFile, resolveLocaleFilePath } from "../core/scaffolder";
 import { confirm } from "../utils/prompt";
+import { exists } from "../utils/fs";
 
 interface ScanOptions {
   path: string;
@@ -127,16 +128,30 @@ export async function scan(options: ScanOptions): Promise<void> {
   }
 
   // ── Step 5: Confirm ───────────────────────────────────────────────────────
+
+  const localeFilePath = resolveLocaleFilePath(
+    localesDir,
+    config.defaultLanguage,
+    config.localeFileName,
+  );
+  const localeExists = exists(localeFilePath); // or fs.existsSync
+
   logger.newline();
+
+  let confirmMessage: string;
+
+if (!localeExists) {
+  confirmMessage = `Create ${outputPreview} with ${strings.length} key(s)?`;
+} else if (fresh) {
+  confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (delete missing keys)?`;
+} else {
+  confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (add new keys, keep existing)?`;
+}
   /**
    * Confirm wording reflects merge behaviour so users do not think
    * the entire locale file will be replaced by only this scan's keys.
    */
-  const shouldProceed = await confirm(
-    fresh
-      ? `Update ${outputPreview} from ${strings.length} scanned string(s) (fresh missing keys)?`
-      : `Update ${outputPreview} from ${strings.length} scanned string(s) (add new keys, keep existing)?`,
-  );
+  const shouldProceed = await confirm(confirmMessage);
 
   if (!shouldProceed) {
     logger.info("Aborted. No files were written.");

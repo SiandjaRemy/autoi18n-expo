@@ -163,6 +163,7 @@ export default defineEaiConfig({
   exclude: [],
   targetLanguages: [],
   i18nFilePath: '${profile.recommendedI18nFilePath}',
+  unsyncedPrefix: '[UNTRANSLATED]',
 })
 `;
 }

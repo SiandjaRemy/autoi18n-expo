@@ -104,4 +104,21 @@ program
     });
   });
 
+// ─── locales-sync ─────────────────────────────────────────────────────────────
+program
+  .command("locales-sync")
+  .description(
+    "Sync new or removed keys from the default locale into all target locale files",
+  )
+  .option("-p, --path <path>", "Root path of the project", ".")
+  .option(
+    "--only <languages>",
+    "Comma-separated list of language codes to sync (default: all target languages)",
+  )
+  .option("--dry-run", "Preview changes without writing files")
+  .action(async (options) => {
+    const { localesSync } = await import("./commands/locales-sync");
+    await localesSync(options);
+  });
+
 program.parse(process.argv);
