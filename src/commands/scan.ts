@@ -190,7 +190,20 @@ export async function scan(options: ScanOptions): Promise<void> {
    * it always has a default value this should never happen.
    */
   if (config.i18nFilePath) {
-    addLocaleToI18nFile(appRoot, config, config.defaultLanguage);
+    const didWire = addLocaleToI18nFile(
+      appRoot,
+      config,
+      config.defaultLanguage,
+    );
+    if (didWire) {
+      logger.success(
+        `Updated ${config.i18nFilePath}: ${config.defaultLanguage} locale wired up`,
+      );
+    } else {
+      logger.info(
+        `${config.i18nFilePath} already up to date — no imports added.`,
+      );
+    }
   }
 
   // ── Step 8: Next steps ────────────────────────────────────────────────────

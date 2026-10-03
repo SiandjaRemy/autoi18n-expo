@@ -77,12 +77,14 @@ export function generateInitialI18nFile(
  * @param appRoot     - Absolute path to the project root
  * @param config      - The loaded eai config
  * @param newLanguage - The language code to add e.g. 'fr'
+ *
+ * @returns true if the file was created or updated, false if unchanged
  */
 export function addLocaleToI18nFile(
   appRoot: string,
   config: EaiConfig,
   newLanguage: string,
-): void {
+): boolean {
   const filePath = resolveI18nFilePath(appRoot, config);
 
   if (!fs.existsSync(filePath)) {
@@ -97,8 +99,7 @@ export function addLocaleToI18nFile(
       config,
     );
     writeFile(filePath, content);
-    logger.success(`Generated ${config.i18nFilePath} with "${newLanguage}"`);
-    return;
+    return true;
   }
 
   /**
@@ -112,7 +113,7 @@ export function addLocaleToI18nFile(
     logger.dim(
       `  ${config.i18nFilePath} already imports "${newLanguage}" — skipping`,
     );
-    return;
+    return false;
   }
 
   const allLanguages = [...existingLanguages, newLanguage];
@@ -128,6 +129,7 @@ export function addLocaleToI18nFile(
 
   writeFile(filePath, content);
   logger.success(`Updated ${config.i18nFilePath} — added "${newLanguage}"`);
+  return true;
 }
 
 /**
@@ -263,7 +265,7 @@ function buildI18nFileContent(
    */
   const resourcesEntries = hasLocales
     ? allLanguages
-        .map((lang) => `${lang}: { translation: ${lang} },`)
+        .map((lang) => `    ${lang}: { translation: ${lang} },`)
         .join("\n")
     : "";
 
@@ -294,7 +296,7 @@ function buildI18nFileContent(
 
 i18n.use(initReactI18next).init({
   resources: {
-    ${resourcesEntries}
+${resourcesEntries}
   },
   lng: '${activeLang}',
   fallbackLng: '${activeLang}',

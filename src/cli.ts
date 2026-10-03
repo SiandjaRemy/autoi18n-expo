@@ -73,4 +73,35 @@ program
     await revert(options);
   });
 
+// ─── locales generate ─────────────────────────────────────────────────────────
+program
+  .command("locales-generate")
+  .description(
+    "Generate locale files for target languages from the default locale",
+  )
+  .option("-p, --path <path>", "Project root", ".")
+  .option("--only <langs>", "Comma-separated language codes (e.g. fr,es,ar)")
+  .option("--force", "Overwrite existing locale files")
+  .option("--yes", "Skip confirmation when using --force")
+  .option("--no-imports", "Do not update i18n.ts")
+  .option("--dry-run", "Preview without writing")
+  .action(async (options) => {
+    const only = options.only
+      ? String(options.only)
+          .split(",")
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+      : undefined;
+
+    const { localesGenerate } = await import("./commands/locales-generate");
+    await localesGenerate({
+      path: options.path,
+      only,
+      force: options.force,
+      yes: options.yes,
+      dryRun: options.dryRun,
+      noImports: options.noImports,
+    });
+  });
+
 program.parse(process.argv);
