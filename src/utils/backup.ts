@@ -40,7 +40,15 @@ export async function findBackupFiles(appRoot: string): Promise<string[]> {
   return glob(`**/*${BAK_EXT}`, {
     cwd: appRoot,
     absolute: true,
-    ignore: ["**/node_modules/**"],
+    ignore: [
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/.expo/**",
+      "**/android/**",
+      "**/ios/**",
+      "**/dist/**",
+      "**/build/**",
+    ],
   });
 }
 

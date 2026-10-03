@@ -59,4 +59,18 @@ program
     await replace(options);
   });
 
+// ─── revert ───────────────────────────────────────────────────────────────────
+program
+  .command("revert")
+  .description("Restore source files from .i18nbak backups created by replace")
+  .option("-p, --path <path>", "Root path of the project", ".")
+  .option(
+    "--clean",
+    "Delete backup files without restoring source files (use after verifying replace output)",
+  )
+  .action(async (options) => {
+    const { revert } = await import("./commands/revert");
+    await revert(options);
+  });
+
 program.parse(process.argv);
