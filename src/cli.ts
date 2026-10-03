@@ -40,7 +40,7 @@ program
   .option("-p, --path <path>", "Root path of the project", ".")
   .option("--dry-run", "Preview without writing files")
   .option(
-    "--prune",
+    "-f, --fresh",
     "Remove locale keys not found in this scan (destructive after replace)",
   )
   .action(async (options) => {

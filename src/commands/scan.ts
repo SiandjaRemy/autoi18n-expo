@@ -14,7 +14,7 @@ import { confirm } from "../utils/prompt";
 interface ScanOptions {
   path: string;
   dryRun?: boolean;
-  prune?: boolean;
+  fresh?: boolean;
 }
 /**
  * `eai scan`
@@ -33,12 +33,12 @@ interface ScanOptions {
  *   8. Print next steps
  *
  * Re-running scan after replace is safe: existing keys are kept and only
- * new keys from the current scan are added, unless --prune is passed.
+ * new keys from the current scan are added, unless --fresh is passed.
  */
 export async function scan(options: ScanOptions): Promise<void> {
   const appRoot = path.resolve(options.path);
   const isDryRun = options.dryRun ?? false;
-  const prune = options.prune ?? false;
+  const fresh = options.fresh ?? false;
 
   // ── Step 1: Load config ───────────────────────────────────────────────────
   const config = await requireConfig(appRoot);
@@ -65,9 +65,9 @@ export async function scan(options: ScanOptions): Promise<void> {
 
   logger.section("eai — Scan");
   if (isDryRun) logger.warn("  Dry run — no files will be written.\n");
-  if (prune) {
+  if (fresh) {
     logger.warn(
-      "  --prune enabled: keys not found in this scan will be removed from the locale file.\n",
+      "  --fresh enabled: keys not found in this scan will be removed from the locale file.\n",
     );
   }
 
@@ -81,7 +81,7 @@ export async function scan(options: ScanOptions): Promise<void> {
     `  Throws      : ${config.detectThrows ? "detected" : "ignored"}`,
   );
   logger.info(
-    `  Merge mode  : ${prune ? "prune missing keys" : "add new keys only (keep existing)"}`,
+    `  Merge mode  : ${fresh ? "fresh missing keys" : "add new keys only (keep existing)"}`,
   );
 
   if (config.customDetectCalls.length > 0) {
@@ -110,7 +110,7 @@ export async function scan(options: ScanOptions): Promise<void> {
         "    • Does your app have <Text> components with content?\n" +
         "    • Are the relevant files excluded by your config or .gitignore?\n" +
         "    • After replace, most copy lives in the locale file — " +
-        "scan only finds remaining hardcoded strings (existing keys are still kept unless --prune).",
+        "scan only finds remaining hardcoded strings (existing keys are still kept unless --fresh).",
     );
     process.exit(0);
   }
@@ -133,8 +133,8 @@ export async function scan(options: ScanOptions): Promise<void> {
    * the entire locale file will be replaced by only this scan's keys.
    */
   const shouldProceed = await confirm(
-    prune
-      ? `Update ${outputPreview} from ${strings.length} scanned string(s) (prune missing keys)?`
+    fresh
+      ? `Update ${outputPreview} from ${strings.length} scanned string(s) (fresh missing keys)?`
       : `Update ${outputPreview} from ${strings.length} scanned string(s) (add new keys, keep existing)?`,
   );
 
@@ -148,7 +148,7 @@ export async function scan(options: ScanOptions): Promise<void> {
    * generateLocaleFile merges into any existing locale JSON by default:
    *   - new keys from this scan are added
    *   - existing keys keep their current values
-   *   - keys not found in this scan are kept unless prune is true
+   *   - keys not found in this scan are kept unless fresh is true
    *
    * That way re-running scan after replace (or after improving the scanner)
    * does not wipe translations that are no longer present as string literals.
@@ -161,7 +161,7 @@ export async function scan(options: ScanOptions): Promise<void> {
       config.defaultLanguage,
       localesDir,
       config.localeFileName,
-      { prune },
+      { fresh },
     );
 
   const relativeLocale = path.relative(appRoot, filePath);
@@ -171,11 +171,11 @@ export async function scan(options: ScanOptions): Promise<void> {
   } else {
     logger.success(`Updated ${relativeLocale} — ${keyCount} key(s) total`);
     logger.info(`  Added   : ${added}`);
-    if (prune) {
+    if (fresh) {
       logger.info(`  Removed : ${removed}`);
     } else {
       logger.dim(
-        "  Existing keys not found in this scan were kept (pass --prune to remove them).",
+        "  Existing keys not found in this scan were kept (pass --fresh to remove them).",
       );
     }
   }

@@ -61,19 +61,19 @@ export function buildLocaleFromStrings(strings: ExtractedString[]): LocaleFile {
  * Merge scan output into an existing locale file.
  * - New keys from scan are added
  * - Existing keys keep their current values (manual translations safe)
- * - Keys only in existing are kept unless prune is true
+ * - Keys only in existing are kept unless fresh is true
  */
 export function mergeLocaleData(
   existing: LocaleFile,
   fromScan: LocaleFile,
-  options: { prune?: boolean } = {},
+  options: { fresh?: boolean } = {},
 ): { merged: LocaleFile; added: string[]; removed: string[] } {
   const added: string[] = [];
   const removed: string[] = [];
 
-  const merged: LocaleFile = options.prune ? {} : { ...existing };
+  const merged: LocaleFile = options.fresh ? {} : { ...existing };
 
-  if (options.prune) {
+  if (options.fresh) {
     for (const key of Object.keys(existing)) {
       if (key in fromScan) {
         merged[key] = existing[key];
@@ -103,7 +103,7 @@ function sortLocale(data: LocaleFile): LocaleFile {
  * Generates or updates the locale JSON for the default language.
  *
  * Default: merge with existing file (add-only).
- * prune: drop keys not present in this scan (use with care after replace).
+ * fresh: drop keys not present in this scan (use with care after replace).
  *
  * @param strings        - All extracted strings from scanProject()
  * @param lang           - Language code e.g. "en"
@@ -116,7 +116,7 @@ export async function generateLocaleFile(
   lang: string,
   localesDir: string,
   localeFileName: string | null,
-  options: { prune?: boolean } = {},
+  options: { fresh?: boolean } = {},
 ): Promise<{
   filePath: string;
   keyCount: number;
@@ -135,7 +135,7 @@ export async function generateLocaleFile(
     : (readJson<LocaleFile>(filePath) ?? {});
 
   const { merged, added, removed } = mergeLocaleData(existing, fromScan, {
-    prune: options.prune ?? false,
+    fresh: options.fresh ?? false,
   });
 
   const sortedContent = sortLocale(merged);
