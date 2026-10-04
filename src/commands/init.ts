@@ -160,6 +160,7 @@ export default defineEaiConfig({
   detectAlerts: true,
   detectThrows: true,
   customDetectCalls: [],
+  detectStateSetters: true,
   exclude: [],
   targetLanguages: [],
   i18nFilePath: '${profile.recommendedI18nFilePath}',

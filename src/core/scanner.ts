@@ -9,7 +9,6 @@ import { readFileSafe } from "../utils/fs";
 import { logger } from "../utils/logger";
 import type { EaiConfig } from "../types/config";
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +140,7 @@ const TRANSLATABLE_PROP_NAMES = new Set([
   "footer",
   "tooltip",
   "accessibilityLabel",
+  "actionLabel",
   "accessibilityHint",
 ]);
 
@@ -899,8 +899,6 @@ export function extractStringsFromFile(
     // toast.show('Saved successfully')  // via customDetectCalls
     //
     CallExpression(nodePath) {
-      if (!config.detectAlerts && customCallPatterns.size === 0) return;
-
       const calleeName = getCalleeName(nodePath.node);
       if (!calleeName) return;
 
@@ -908,11 +906,9 @@ export function extractStringsFromFile(
       if (config.detectAlerts && calleeName === "Alert.alert") {
         const args = nodePath.node.arguments;
 
-        // Title (0) and message (1): literals, templates, ternaries, logicals
         for (let i = 0; i < Math.min(args.length, 2); i++) {
           const arg = args[i];
           if (!arg || arg.type === "SpreadElement") continue;
-
           extractFromExpression(
             arg as t.Expression,
             results,
@@ -923,7 +919,6 @@ export function extractStringsFromFile(
           );
         }
 
-        // Buttons array (2): [{ text: "Cancel" }, ...]
         if (args.length >= 3) {
           extractAlertButtonTexts(
             args[2],
@@ -936,11 +931,28 @@ export function extractStringsFromFile(
         return;
       }
 
-      // ── customDetectCalls (toast.show, setError, …) ─────────────────────────
-      // Top-level string literal args only (same as before)
+      // ── customDetectCalls ───────────────────────────────────────────────────
       if (customCallPatterns.has(calleeName)) {
         extractStringArgs(
           nodePath.node.arguments,
+          results,
+          namespace,
+          filePath,
+          maxKeyLen,
+          "call",
+        );
+        return;
+      }
+
+      // ── useState-style setters: setError("..."), setMessage(`...`) ───────────
+      // Default on unless config.detectStateSetters === false
+      if (config.detectStateSetters !== false && /^set[A-Z]/.test(calleeName)) {
+        const arg0 = nodePath.node.arguments[0];
+        if (!arg0 || arg0.type === "SpreadElement") return;
+        if (!t.isExpression(arg0)) return;
+
+        extractFromExpression(
+          arg0,
           results,
           namespace,
           filePath,

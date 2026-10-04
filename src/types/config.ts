@@ -339,6 +339,8 @@ export interface EaiConfig {
    */
   customDetectCalls: string[];
 
+  detectStateSetters: boolean;
+
   /**
    * Glob patterns for files and directories to exclude from scanning.
    *

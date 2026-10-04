@@ -93,6 +93,126 @@ function getHelperName(node: any, parent: any): string | null {
   return null;
 }
 
+// ─── Other utilities ───────────────────────────────────────────────────────────
+
+function alreadyHasTParam(node: any): boolean {
+  return node.params?.some(
+    (p: any) => p.type === "Identifier" && p.name === "t",
+  );
+}
+
+function buildTFunctionImport(): any {
+  return b.importDeclaration(
+    [b.importSpecifier(b.identifier("TFunction"), b.identifier("TFunction"))],
+    b.literal("i18next"),
+  );
+}
+
+function buildTFunctionParam(): any {
+  const param = b.identifier("t");
+  param.typeAnnotation = {
+    type: "TSTypeAnnotation",
+    typeAnnotation: {
+      type: "TSTypeReference",
+      typeName: { type: "Identifier", name: "TFunction" },
+    },
+  } as any;
+  return param;
+}
+
+function functionBodyContainsTCall(block: any): boolean {
+  if (!block || block.type !== "BlockStatement") return false;
+  let found = false;
+  visit(block, {
+    visitCallExpression(p) {
+      if (p.node.callee?.type === "Identifier" && p.node.callee.name === "t") {
+        found = true;
+        return false;
+      }
+      this.traverse(p);
+    },
+  });
+  return found;
+}
+
+/**
+ * True if this function is exported (named or default).
+ * Non-exported local helpers may receive `t: TFunction`.
+ * Exported helpers must use i18n.t so call sites in other files stay valid.
+ */
+function isExportedFunction(nodePath: any): boolean {
+  let current = nodePath;
+  while (current) {
+    const node = current.node;
+    const parent = current.parent?.node;
+
+    if (
+      node?.type === "ExportNamedDeclaration" ||
+      node?.type === "ExportDefaultDeclaration"
+    ) {
+      return true;
+    }
+
+    // export function foo() {}
+    if (
+      parent?.type === "ExportNamedDeclaration" ||
+      parent?.type === "ExportDefaultDeclaration"
+    ) {
+      return true;
+    }
+
+    // export { foo } — rare mid-replace; treat as exported if we only see the decl
+    current = current.parent;
+  }
+  return false;
+}
+
+/**
+ * Walk up to the nearest function; null if none (module scope).
+ */
+function getEnclosingFunctionPath(nodePath: any): any | null {
+  let current = nodePath.parent;
+  while (current) {
+    const type = current.node?.type;
+    if (
+      type === "FunctionDeclaration" ||
+      type === "FunctionExpression" ||
+      type === "ArrowFunctionExpression"
+    ) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+type I18nStrategy = "t-component" | "t-helper" | "i18n";
+
+/**
+ * Decide how to rewrite a string at this AST path.
+ */
+function resolveI18nStrategy(
+  nodePath: any,
+  kind: "jsx" | "string" = "jsx",
+): I18nStrategy {
+  if (isNestedInsideComponent(nodePath)) return "t-component";
+
+  // Utils / API: never inject t param
+  if (kind === "string") return "i18n";
+
+  const fnPath = getEnclosingFunctionPath(nodePath);
+  if (!fnPath) return "i18n";
+
+  if (
+    !isExportedFunction(fnPath) &&
+    isHelperFunction(fnPath.node, fnPath.parent?.node)
+  ) {
+    return "t-helper";
+  }
+
+  return "i18n";
+}
+
 // ─── AST builders ───────────────────────────────────────────────────────────
 
 function buildTCall(key: string): any {
@@ -434,6 +554,7 @@ function replaceAlertButtonObject(
   obj: any,
   filePath: string,
   fileStrings: ExtractedString[],
+  useI18nInstance = false,
 ): number {
   if (obj?.type !== "ObjectExpression") return 0;
   let count = 0;
@@ -452,7 +573,7 @@ function replaceAlertButtonObject(
       filePath,
       fileStrings,
       "alert",
-      { useI18nInstance: false },
+      { useI18nInstance },
     );
     if (c > 0) {
       prop.value = newValue;
@@ -466,12 +587,18 @@ function replaceAlertButtonsArg(
   arg: any,
   filePath: string,
   fileStrings: ExtractedString[],
+  useI18nInstance = false,
 ): number {
   if (arg?.type !== "ArrayExpression") return 0;
   let count = 0;
   for (const el of arg.elements ?? []) {
     if (el?.type === "ObjectExpression") {
-      count += replaceAlertButtonObject(el, filePath, fileStrings);
+      count += replaceAlertButtonObject(
+        el,
+        filePath,
+        fileStrings,
+        useI18nInstance,
+      );
     }
   }
   return count;
@@ -563,7 +690,23 @@ export function transformFile(
         return !originalValue.slice(contentEnd + 1).includes("\n");
       })();
 
-      const call = buildTCall(extracted.fullKey);
+      const strategy = resolveI18nStrategy(nodePath);
+      if (strategy === "i18n") fileNeedsI18nImport = true;
+
+      const call =
+        strategy === "i18n"
+          ? buildI18nTCall(extracted.fullKey)
+          : buildTCall(extracted.fullKey);
+
+      // if strategy === "t-helper", register enclosing function for t injection
+      if (strategy === "t-helper") {
+        const fnPath = getEnclosingFunctionPath(nodePath);
+        if (fnPath) {
+          const name = getHelperName(fnPath.node, fnPath.parent?.node);
+          if (name) helpersNeedingT.set(name, fnPath.node);
+        }
+      }
+
       if (!hasLeadingSpace && !hasTrailingSpace) {
         nodePath.replace(buildJSXExpression(call));
         totalReplacements++;
@@ -592,15 +735,29 @@ export function transformFile(
       if (!expr || expr.type === "JSXEmptyExpression") {
         return this.traverse(nodePath);
       }
+
+      const strategy = resolveI18nStrategy(nodePath);
+      const useI18n = strategy === "i18n";
+
+      if (strategy === "t-helper") {
+        const fnPath = getEnclosingFunctionPath(nodePath);
+        if (fnPath) {
+          const name = getHelperName(fnPath.node, fnPath.parent?.node);
+          if (name) helpersNeedingT.set(name, fnPath.node);
+        }
+      }
+
       const [newExpr, count] = replaceStringNode(
         expr,
         filePath,
         fileStrings,
         "jsx-expression",
+        { useI18nInstance: useI18n },
       );
       if (count > 0) {
         nodePath.node.expression = newExpr;
         totalReplacements += count;
+        if (useI18n) fileNeedsI18nImport = true;
       }
       this.traverse(nodePath);
     },
@@ -616,9 +773,23 @@ export function transformFile(
             "jsx-attribute",
           );
           if (extracted) {
-            nodePath.node.value = buildJSXExpression(
-              buildTCall(extracted.fullKey),
-            );
+            const strategy = resolveI18nStrategy(nodePath);
+            if (strategy === "i18n") fileNeedsI18nImport = true;
+
+            if (strategy === "t-helper") {
+              const fnPath = getEnclosingFunctionPath(nodePath);
+              if (fnPath) {
+                const name = getHelperName(fnPath.node, fnPath.parent?.node);
+                if (name) helpersNeedingT.set(name, fnPath.node);
+              }
+            }
+
+            const call =
+              strategy === "i18n"
+                ? buildI18nTCall(extracted.fullKey)
+                : buildTCall(extracted.fullKey);
+
+            nodePath.node.value = buildJSXExpression(call);
             totalReplacements++;
           }
         }
@@ -640,32 +811,51 @@ export function transformFile(
       }
 
       if (calleeName === "Alert.alert") {
+        const strategy = resolveI18nStrategy(nodePath, "jsx");
+        const useI18n = strategy === "i18n";
+
+        if (strategy === "t-helper") {
+          const fnPath = getEnclosingFunctionPath(nodePath);
+          if (fnPath) {
+            const name = getHelperName(fnPath.node, fnPath.parent?.node);
+            if (name) helpersNeedingT.set(name, fnPath.node);
+          }
+        }
+
         args.forEach((arg: any, index: number) => {
           if (!arg || arg.type === "SpreadElement") return;
+
           if (index === 0 || index === 1) {
             const [newArg, count] = replaceStringNode(
               arg,
               filePath,
               fileStrings,
               "alert",
-              { useI18nInstance: false },
+              { useI18nInstance: useI18n },
             );
             if (count > 0) {
               nodePath.node.arguments[index] = newArg;
               totalReplacements += count;
+              if (useI18n) fileNeedsI18nImport = true;
             }
           } else if (index === 2) {
-            totalReplacements += replaceAlertButtonsArg(
+            const n = replaceAlertButtonsArg(
               arg,
               filePath,
               fileStrings,
+              useI18n, // thread flag — see below
             );
+            totalReplacements += n;
+            if (n > 0 && useI18n) fileNeedsI18nImport = true;
           }
         });
       } else if (
         calleeName &&
         fileStrings.some((s) => s.sourceType === "call")
       ) {
+        const strategy = resolveI18nStrategy(nodePath, "jsx");
+        const useI18n = strategy === "i18n";
+
         args.forEach((arg: any, index: number) => {
           if (!arg || arg.type === "SpreadElement") return;
           const [newArg, count] = replaceStringNode(
@@ -673,11 +863,12 @@ export function transformFile(
             filePath,
             fileStrings,
             "call",
-            { useI18nInstance: false },
+            { useI18nInstance: useI18n },
           );
           if (count > 0) {
             nodePath.node.arguments[index] = newArg;
             totalReplacements += count;
+            if (useI18n) fileNeedsI18nImport = true;
           }
         });
       }
@@ -727,18 +918,20 @@ export function transformFile(
       const arg = nodePath.node.argument;
       if (!arg) return this.traverse(nodePath);
 
-      const useI18nInstance = !isNestedInsideComponent(nodePath);
+      const strategy = resolveI18nStrategy(nodePath, "string");
+      const useI18n = strategy === "i18n";
+
       const [newArg, count] = replaceStringNode(
         arg,
         filePath,
         fileStrings,
         "return",
-        { useI18nInstance },
+        { useI18nInstance: useI18n },
       );
       if (count > 0) {
         nodePath.node.argument = newArg;
         totalReplacements += count;
-        if (useI18nInstance) fileNeedsI18nImport = true;
+        if (useI18n) fileNeedsI18nImport = true;
       }
       this.traverse(nodePath);
     },
@@ -761,6 +954,47 @@ export function transformFile(
 
   if (totalReplacements === 0) {
     return { filePath, modified: false, replacements: 0 };
+  }
+
+  // ── Non-exported JSX helpers: t param + same-file call sites ───────────────
+  for (const [name, funcNode] of helpersNeedingT) {
+    if (functionBodyContainsTCall(funcNode.body)) {
+      helperNamesWithT.add(name);
+    }
+  }
+
+  for (const name of helperNamesWithT) {
+    const funcNode = helpersNeedingT.get(name);
+    if (!funcNode || alreadyHasTParam(funcNode)) continue;
+    funcNode.params.push(buildTFunctionParam());
+  }
+
+  if (helperNamesWithT.size > 0) {
+    visit(ast, {
+      visitCallExpression(nodePath) {
+        const { callee, arguments: args } = nodePath.node;
+
+        if (callee.type !== "Identifier") return this.traverse(nodePath);
+
+        const calleeName = (callee as any).name;
+        if (!helperNamesWithT.has(calleeName)) return this.traverse(nodePath);
+
+        const lastArg = args[args.length - 1];
+        const alreadyHasT =
+          lastArg?.type === "Identifier" && (lastArg as any).name === "t";
+        if (!alreadyHasT) {
+          nodePath.node.arguments.push(b.identifier("t"));
+        }
+        this.traverse(nodePath);
+      },
+    });
+
+    addNamedImport(
+      ast.program.body,
+      "i18next",
+      "TFunction",
+      buildTFunctionImport,
+    );
   }
 
   for (const block of componentBlocks) {

@@ -30,6 +30,7 @@ export const DEFAULT_CONFIG: EaiConfig = {
   detectAlerts: true,
   detectThrows: true,
   customDetectCalls: [],
+  detectStateSetters: true,
   exclude: [],
   targetLanguages: [],
   i18nFilePath: "src/i18n.ts",
