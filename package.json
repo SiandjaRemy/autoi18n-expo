@@ -43,14 +43,6 @@
     "i18next": ">=23.0.0",
     "react-i18next": ">=14.0.0"
   },
-  "peerDependenciesMeta": {
-    "i18next": {
-      "optional": false
-    },
-    "react-i18next": {
-      "optional": false
-    }
-  },
   "dependencies": {
     "@babel/generator": "^7.26.5",
     "@babel/parser": "^7.26.5",
