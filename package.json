@@ -1,6 +1,6 @@
 {
   "name": "@autoi18n/expo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatic i18n scaffolding and code transformation for Expo apps",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
