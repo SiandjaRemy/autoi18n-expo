@@ -1,18 +1,25 @@
+<div align="center">
+
 # @autoi18n/expo
 
-> Automatic i18n scaffolding and code transformation for **Expo** and **React Native** apps.
+**Find every string. Generate every locale. Rewrite every call site.**
 
-`@autoi18n/expo` scans your app with AST parsing, extracts user-facing strings, generates locale JSON, and rewrites source to use `t()` / `i18n.t()` — **without modifying your code until you confirm**.
+Automatic i18n scaffolding and code transformation for **Expo** and **React Native**.
 
-It does **not** machine-translate. It prepares structure, keys, and call sites so **i18next** + **react-i18next** are ready; you (or a TMS/API later) supply translations.
+<div align="center">
 
-> **Scope:** Expo and React Native only. Next.js, Vite, and other stacks are planned as separate `@autoi18n/*` packages.
+[![npm version](https://img.shields.io/npm/v/@autoi18n/expo?color=blue&label=npm&style=flat-square)](https://www.npmjs.com/package/@autoi18n/expo) [![downloads](https://img.shields.io/npm/dm/@autoi18n/expo?color=green&style=flat-square)](https://www.npmjs.com/package/@autoi18n/expo) [![stars](https://img.shields.io/github/stars/SiandjaRemy/autoi18n-expo?style=flat-square&color=yellow)](https://github.com/SiandjaRemy/autoi18n-expo) [![license](https://img.shields.io/npm/l/@autoi18n/expo?color=lightgrey&style=flat-square)](./LICENSE) 
+</div>
+
+</div>
+
+`@autoi18n/expo` scans your app with AST parsing, extracts user-facing strings, generates locale JSON, and rewrites source to use `t()` or `i18n.t()`. It does not modify a single file until you confirm.
+
+It does **not** handle translation (yet). It prepares the structure, the keys, and the call sites, so **i18next** and **react-i18next** are ready for whatever you or your translation pipeline supply.
 
 **CLI:** `eai`
 
-[![npm version](https://img.shields.io/npm/v/@autoi18n/expo.svg)](https://www.npmjs.com/package/@autoi18n/expo)
-[![license](https://img.shields.io/npm/l/@autoi18n/expo.svg)](./LICENSE)
-[![node](https://img.shields.io/node/v/@autoi18n/expo.svg)](https://nodejs.org)
+> **Scope:** Expo and React Native only. Next.js, Vite, and other stacks are planned as separate `@autoi18n/*` packages.
 
 ---
 
@@ -243,18 +250,18 @@ Also wires the default language into `i18n.ts`.
 
 **What gets detected**
 
-| Source                      | Example                                                                                                  |
-| --------------------------- | -------------------------------------------------------------------------------------------------------- |
-| JSX text                    | `<Text>Hello world</Text>`                                                                               |
-| JSX string expressions      | `<Text>{"Hello"}</Text>`                                                                                 |
-| Template literals (simple)  | <code>&lt;Text&gt;{`Hello ${name}`}&lt;/Text&gt;</code>                                                  |
-| Ternaries / logicals in JSX | `{loading ? "Wait" : "Go"}`, `{flag && "Visible"}`                                                       |
-| Allowlisted JSX props       | `<Button title="Submit" />`, `accessibilityLabel`, `actionLabel`, …                                      |
-| `Alert.alert`               | Title, message, button text (incl. ternaries)                                                            |
-| Throws                      | `throw new Error('Failed to save')`                                                                      |
-| Helper return strings       | With stricter UI heuristics                                                                              |
+| Source                      | Example                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------- |
+| JSX text                    | `<Text>Hello world</Text>`                                                                        |
+| JSX string expressions      | `<Text>{"Hello"}</Text>`                                                                          |
+| Template literals (simple)  | <code>&lt;Text&gt;{`Hello ${name}`}&lt;/Text&gt;</code>                                           |
+| Ternaries / logicals in JSX | `{loading ? "Wait" : "Go"}`, `{flag && "Visible"}`                                                |
+| Allowlisted JSX props       | `<Button title="Submit" />`, `accessibilityLabel`, `actionLabel`, …                               |
+| `Alert.alert`               | Title, message, button text (incl. ternaries)                                                     |
+| Throws                      | `throw new Error('Failed to save')`                                                               |
+| Helper return strings       | With stricter UI heuristics                                                                       |
 | State setters               | via detectStateSetters (true by default) `setError('…')`, `setMessage('…')` (`set*` + string arg) |
-| Custom calls                | `customDetectCalls`, e.g. `toast.show`                                                                   |
+| Custom calls                | `customDetectCalls`, e.g. `toast.show`                                                            |
 
 **What is ignored**
 
@@ -429,7 +436,6 @@ export default defineEaiConfig({
   unsyncedPrefix: "[UNTRANSLATED]",
 });
 ```
-
 
 | Field                | Default                       | Description                                                 |
 | -------------------- | ----------------------------- | ----------------------------------------------------------- |
