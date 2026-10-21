@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { glob } from "glob";
+import fg from 'fast-glob'
 import { logger } from "./logger";
 
 /**
@@ -37,7 +37,7 @@ export function backupFile(filePath: string): void {
  * @param appRoot - Absolute path to the project root
  */
 export async function findBackupFiles(appRoot: string): Promise<string[]> {
-  return glob(`**/*${BAK_EXT}`, {
+  return fg(`**/*${BAK_EXT}`, {
     cwd: appRoot,
     absolute: true,
     ignore: [

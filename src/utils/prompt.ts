@@ -1,4 +1,5 @@
 import { confirm as inquirerConfirm } from "@inquirer/prompts";
+
 import { logger } from "./logger";
 import fs from "fs";
 import path from "path";

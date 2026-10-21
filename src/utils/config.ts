@@ -31,10 +31,16 @@ export const DEFAULT_CONFIG: EaiConfig = {
   detectThrows: true,
   customDetectCalls: [],
   detectStateSetters: true,
+  additionalTranslatablePropNames: [],
   exclude: [],
   targetLanguages: [],
   i18nFilePath: "src/i18n.ts",
   unsyncedPrefix: "[UNTRANSLATED]",
+  detectObjectLiterals: false,
+  objectLiteralExcludeKeys: [],
+  objectLiteralIncludeKeys: [],
+  skipCamelCase: true,
+  skipSnakeCase: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

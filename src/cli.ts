@@ -1,8 +1,10 @@
-import { program } from "commander";
+import { Command } from "commander";
 import packageJson from "../package.json";
 
 export const APP_VERSION = packageJson.version;
 export const APP_DESCRIPTION = packageJson.description;
+
+const program = new Command();
 
 program
   .name("eai")

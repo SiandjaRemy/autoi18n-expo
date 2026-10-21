@@ -6,21 +6,35 @@ export default defineConfig({
     index: "src/index.ts",
   },
   format: ["cjs"],
+  platform: "node",
+  target: "node18",
   dts: false,
   clean: true,
   sourcemap: true,
   splitting: false,
-  /**
-   * shims: true adds CJS-compatible shims for __dirname and __filename
-   * which are not available in ESM but are needed by some dependencies.
-   */
   shims: true,
   banner: {
-    /**
-     * The shebang line MUST be the first line of the CLI output file.
-     * Without it, the OS does not know to run the file with Node
-     * and the command will fail with a cryptic error.
-     */
     js: "#!/usr/bin/env node",
   },
+  /**
+   * Bundle packages that could conflict with host project versions.
+   *
+   * fast-glob — Expo tooling ships micromatch/glob internally; bundling
+   *             fast-glob ensures we always use our pinned version.
+   * chalk@4   — Expo ships chalk; v5 is ESM-only and would break CJS bundle.
+   * commander — bundled so Expo's older commander hoist can't interfere.
+   */
+  noExternal: ["fast-glob", "chalk", "commander"],
+
+  external: [
+    "@babel/generator",
+    "@babel/parser",
+    "@babel/traverse",
+    "@babel/types",
+    "@inquirer/prompts",
+    "ignore",
+    "jiti",
+    "ora",
+    "recast",
+  ],
 });

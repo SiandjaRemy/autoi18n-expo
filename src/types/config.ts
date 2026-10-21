@@ -339,7 +339,31 @@ export interface EaiConfig {
    */
   customDetectCalls: string[];
 
+  /**
+   * Whether to extract strings from state setter calls matching the
+   * pattern /^set[A-Z]/ — e.g. setError("..."), setMessage(`...`).
+   *
+   * These are common patterns for surfacing user-facing strings from
+   * async operations and form validation.
+   *
+   * Set to false if your state setters don't carry user-facing strings,
+   * or if you're seeing too many false positives.
+   *
+   * @default true
+   */
   detectStateSetters: boolean;
+
+  /**
+   * Additional JSX prop names to treat as translatable, beyond the
+   * built-in list (title, placeholder, label, accessibilityLabel, etc.).
+   *
+   * Use this when working with third-party component libraries that
+   * expose user-visible text through non-standard prop names.
+   *
+   * @default []
+   * @example ['text', 'content', 'btnText', 'emptyMessage']
+   */
+  additionalTranslatablePropNames: string[];
 
   /**
    * Glob patterns for files and directories to exclude from scanning.
@@ -390,4 +414,70 @@ export interface EaiConfig {
    * @default '[UNTRANSLATED]'
    */
   unsyncedPrefix: string;
+
+  /**
+   * When true, the scanner will look for translatable strings inside
+   * object literals — data objects in hooks, stores, and constants files.
+   *
+   * ⚠️ WARNING: This significantly increases false positive risk.
+   * Object properties like id, value, color, icon, href, type will also
+   * be considered unless excluded via objectLiteralExcludeKeys.
+   *
+   * Recommended: only enable this if you have data objects with known
+   * user-facing string properties (title, label, description, etc.)
+   *
+   * @default false
+   */
+  detectObjectLiterals: boolean;
+
+  /**
+   * When detectObjectLiterals is true, these property key names are
+   * always skipped regardless of their value.
+   *
+   * Built-in excluded keys (always applied when detectObjectLiterals is true):
+   *   id, value, key, name, type, color, icon, href, to, from, src,
+   *   className, style, testID, variant, size, format, currency, path,
+   *   route, screen, component, ref, role
+   *
+   * Use this option to add your own project-specific keys to skip.
+   *
+   * @default []
+   * @example ['icon', 'badge', 'analyticsEvent']
+   */
+  objectLiteralExcludeKeys: string[];
+
+  /**
+   * When detectObjectLiterals is true, only these property key names
+   * will be considered for extraction. Takes priority over
+   * objectLiteralExcludeKeys — if set, only these keys are scanned.
+   *
+   * Use this for a strict allowlist approach when you know exactly which
+   * property names contain user-facing strings.
+   *
+   * @default [] (empty = use the exclude list approach instead)
+   * @example ['title', 'label', 'description', 'details', 'quote']
+   */
+  objectLiteralIncludeKeys: string[];
+  
+  /**
+   * Skip strings that are purely camelCase identifiers with no spaces.
+   * e.g. "tasksLimit", "myComponent", "handlePress"
+   *
+   * Only applies when the ENTIRE string is a single camelCase token.
+   * "Tasks Limit" (has a space) is still detected normally.
+   *
+   * @default true
+   */
+  skipCamelCase: boolean;
+
+  /**
+   * Skip strings that are purely snake_case or kebab-case identifiers.
+   * e.g. "task_limit", "my-component", "handle_press"
+   *
+   * Only applies when the ENTIRE string is a single token with underscores
+   * or hyphens and no spaces.
+   *
+   * @default true
+   */
+  skipSnakeCase: boolean;
 }

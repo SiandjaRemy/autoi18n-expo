@@ -1,7 +1,7 @@
 import * as parser from "@babel/parser";
 import traverse from "@babel/traverse";
 import * as t from "@babel/types";
-import { glob } from "glob";
+import fg from "fast-glob";
 import ignoreLib from "ignore";
 import fs from "fs";
 import path from "path";
@@ -182,6 +182,41 @@ const HARD_EXCLUDED_DIRS = [
   "**/.git/**",
 ];
 
+/**
+ * Object property key names that are never user-facing text.
+ * Always skipped when detectObjectLiterals is true, regardless of
+ * objectLiteralExcludeKeys config.
+ */
+const OBJECT_LITERAL_BUILTIN_EXCLUDE_KEYS = new Set([
+  "id",
+  "value",
+  "key",
+  "name",
+  "type",
+  "color",
+  "icon",
+  "href",
+  "to",
+  "from",
+  "src",
+  "className",
+  "style",
+  "testID",
+  "variant",
+  "size",
+  "format",
+  "currency",
+  "path",
+  "route",
+  "screen",
+  "component",
+  "ref",
+  "role",
+  "filter",
+  "status",
+  "bg",
+]);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Key generation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,8 +291,19 @@ function buildFullKey(
   namespace: string,
   text: string,
   maxKeyLength: number,
-): { key: string; fullKey: string } {
+): { key: string; fullKey: string } | null {
   const rawSegment = toKeySegment(text);
+
+  /**
+   * Guard: if the string produced no valid key characters after normalization
+   * (e.g. pure emoji, punctuation-only strings like "...", "←", "• • •"),
+   * skip it entirely rather than generating a key ending in a bare dot.
+   *
+   * Without this guard: toKeySegment("...") → "" → fullKey becomes "namespace."
+   * which produces the broken "components.backbutton.": "..." entry in the locale file.
+   */
+  if (!rawSegment) return null;
+
   const available = maxKeyLength - namespace.length - 1;
 
   let trimmedSegment: string;
@@ -326,17 +372,35 @@ export function normalizeJSXWhitespace(value: string): string {
  *   - Code identifiers and slugs (cash_in, MY_CONSTANT, kebab-case)
  *   - CSS utility class strings (Tailwind/NativeWind)
  */
-function isExtractable(value: string): boolean {
+function isExtractable(value: string, config?: EaiConfig): boolean {
   const trimmed = value.trim();
 
   if (trimmed.length < 2) return false;
   if (/^\d+(\.\d+)?$/.test(trimmed)) return false;
   if (/^https?:\/\//.test(trimmed)) return false;
 
-  // Looks like a code identifier, slug, or constant — no spaces
-  if (/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(trimmed) && !trimmed.includes(" ")) {
-    if (trimmed.includes("_") || trimmed.includes("-")) return false;
+  // Single-token checks — only apply when there are no spaces
+  if (!trimmed.includes(" ")) {
+    // ALL_CAPS constant
     if (trimmed === trimmed.toUpperCase() && trimmed.length > 2) return false;
+
+    // snake_case or kebab-case
+    if (
+      config?.skipSnakeCase !== false &&
+      /^[a-zA-Z][a-zA-Z0-9]*([_-][a-zA-Z0-9]+)+$/.test(trimmed)
+    )
+      return false;
+
+    // camelCase — has at least one uppercase letter after the first char
+    if (
+      config?.skipCamelCase !== false &&
+      /^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)
+    )
+      return false;
+
+    // PascalCase — starts uppercase, has more uppercase inside
+    // e.g. "TaskLimit", "HomeScreen" — component names, not UI copy
+    if (/^[A-Z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)) return false;
   }
 
   if (isCssClassString(trimmed)) return false;
@@ -427,11 +491,21 @@ function isCssClassString(value: string): boolean {
   const tokens = value.trim().split(/\s+/);
   if (tokens.length < 2) return false;
 
+  /**
+   * Matches individual Tailwind/NativeWind utility class tokens.
+   *
+   * Handles:
+   *   - Plain utilities:       text-sm, flex-row, bg-primary
+   *   - Dark mode variants:    dark:text-white, dark:bg-surface
+   *   - Other variants:        hover:opacity-70, active:scale-95
+   *   - Arbitrary values:      w-[100px], text-[13px]
+   *   - Custom tokens:         text-text-secondary (multi-hyphen)
+   */
   const cssPattern =
-    /^[a-z]{1,4}(-[a-z0-9.[\]/]+)+$|^(flex|hidden|block|grid|p|m|w|h|gap|text|font|bg|border|rounded|shadow|items|justify|overflow|absolute|relative|fixed|inset|z|opacity|ring|cursor|pointer|animate|transition|duration|ease|scale|rotate|translate|aspect|container|sr)(-.*)?$/;
+    /^([a-z][a-z0-9]*:)?([a-z]{1,4}(-[a-z0-9.[\]/]+)+)$|^([a-z][a-z0-9]*:)?(flex|hidden|block|grid|p|m|w|h|gap|text|font|bg|border|rounded|shadow|items|justify|overflow|absolute|relative|fixed|inset|z|opacity|ring|cursor|pointer|animate|transition|duration|ease|scale|rotate|translate|aspect|container|sr)(-.*)?$/;
 
   const cssLikeCount = tokens.filter((tk) => cssPattern.test(tk)).length;
-  return cssLikeCount / tokens.length > 0.5;
+  return cssLikeCount / tokens.length >= 0.4;
 }
 
 /**
@@ -527,16 +601,20 @@ function extractFromExpression(
   maxKeyLen: number,
   sourceType: ExtractedString["sourceType"],
   strictUiCopy = false,
+  config?: EaiConfig,
 ): void {
   if (!expr || t.isJSXEmptyExpression(expr)) return;
 
   const passes = (value: string) =>
-    strictUiCopy ? isLikelyUiCopy(value) : isExtractable(value);
+    strictUiCopy ? isLikelyUiCopy(value) : isExtractable(value, config);
 
   // ── String literal ─────────────────────────────────────────────────────────
   if (t.isStringLiteral(expr)) {
     if (!passes(expr.value)) return; // ← was isExtractable(expr.value)
-    const { key, fullKey } = buildFullKey(namespace, expr.value, maxKeyLen);
+
+    const builtKey = buildFullKey(namespace, expr.value, maxKeyLen);
+    if (!builtKey) return;
+    const { key, fullKey } = builtKey;
 
     results.push({
       filePath,
@@ -557,7 +635,10 @@ function extractFromExpression(
       const { text, params } = processTemplateLiteral(expr);
       if (!isExtractable(text)) return;
 
-      const { key, fullKey } = buildFullKey(namespace, text, maxKeyLen);
+      const builtKey = buildFullKey(namespace, text, maxKeyLen);
+      if (!builtKey) return;
+      const { key, fullKey } = builtKey;
+
       results.push({
         filePath,
         namespace,
@@ -684,6 +765,117 @@ function extractAlertButtonTexts(
         filePath,
         maxKeyLen,
         "alert",
+      );
+    }
+  }
+}
+
+/**
+ * Extracts translatable strings from a plain object literal.
+ *
+ * Used when config.detectObjectLiterals is true. Handles three value shapes:
+ *   string:           title: "Tasks Limit"
+ *   template literal: description: `Up to ${LIMIT} tasks`
+ *   array of strings: details: ["First item", "Second item"]
+ *
+ * Which keys are extracted depends on the config:
+ *   - If objectLiteralIncludeKeys is set → only those keys (allowlist)
+ *   - Otherwise → all keys except OBJECT_LITERAL_BUILTIN_EXCLUDE_KEYS
+ *     and objectLiteralExcludeKeys (blocklist)
+ *
+ * @param objNode  - The ObjectExpression AST node to walk
+ * @param config   - The loaded eai config
+ * @param results  - Array to push found strings into
+ * @param namespace - Namespace for key generation
+ * @param filePath - Source file path
+ * @param maxKeyLen - Maximum key length
+ * @param depth - to document
+ */
+function extractFromObjectLiteral(
+  objNode: t.ObjectExpression,
+  config: EaiConfig,
+  results: ExtractedString[],
+  namespace: string,
+  filePath: string,
+  maxKeyLen: number,
+  depth: number = 0,
+): void {
+  /**
+   * Depth guard: prevent runaway recursion on deeply nested objects.
+   * 3 levels is enough for any realistic data structure:
+   *   level 0: infoItems
+   *   level 1: infoItems.tasksLimit
+   *   level 2: infoItems.tasksLimit.title / details
+   */
+  if (depth > 3) return;
+
+  for (const prop of objNode.properties) {
+    if (!t.isObjectProperty(prop)) continue;
+    if (prop.computed) continue;
+
+    const keyName = t.isIdentifier(prop.key)
+      ? prop.key.name
+      : t.isStringLiteral(prop.key)
+        ? prop.key.value
+        : null;
+
+    if (!keyName) continue;
+
+    // ── Nested object — always recurse regardless of key filtering ──────────
+    // e.g. infoItems.tasksLimit is an object — recurse into it even though
+    // "tasksLimit" is not in objectLiteralIncludeKeys, because its children
+    // (title, description, details) may be.
+    if (t.isObjectExpression(prop.value)) {
+      extractFromObjectLiteral(
+        prop.value,
+        config,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        depth + 1,
+      );
+      continue;
+    }
+
+    // ── Key filtering — only apply to leaf string/array values ──────────────
+    if (config.objectLiteralIncludeKeys.length > 0) {
+      if (!config.objectLiteralIncludeKeys.includes(keyName)) continue;
+    } else {
+      if (OBJECT_LITERAL_BUILTIN_EXCLUDE_KEYS.has(keyName)) continue;
+      if (config.objectLiteralExcludeKeys.includes(keyName)) continue;
+    }
+
+    // ── Array value: details: ["item one", "item two"] ───────────────────────
+    if (t.isArrayExpression(prop.value)) {
+      for (const element of prop.value.elements) {
+        if (!element || t.isSpreadElement(element)) continue;
+        if (!t.isExpression(element)) continue;
+        extractFromExpression(
+          element,
+          results,
+          namespace,
+          filePath,
+          maxKeyLen,
+          "jsx-expression",
+          false,
+          config,
+        );
+      }
+      continue;
+    }
+
+    // ── String, template literal, ternary ────────────────────────────────────
+    if (t.isExpression(prop.value)) {
+      extractFromExpression(
+        prop.value,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
+        "jsx-expression",
+        false,
+        config,
       );
     }
   }
@@ -828,9 +1020,12 @@ export function extractStringsFromFile(
     // <Text>Hello world</Text>
     JSXText(nodePath) {
       const normalized = normalizeJSXWhitespace(nodePath.node.value);
-      if (!isExtractable(normalized)) return;
+      if (!isExtractable(normalized, config)) return;
 
-      const { key, fullKey } = buildFullKey(namespace, normalized, maxKeyLen);
+      const builtKey = buildFullKey(namespace, normalized, maxKeyLen);
+      if (!builtKey) return;
+      const { key, fullKey } = builtKey;
+
       results.push({
         filePath,
         namespace,
@@ -863,30 +1058,115 @@ export function extractStringsFromFile(
     },
 
     // ── 3. Translatable JSX props ────────────────────────────────────────────
-    // <Button title="Submit" />
-    // <Input placeholder="Enter email" accessibilityLabel="Email field" />
+    //
+    // Direct string attribute:
+    //   <Button title="Submit" />
+    //   <Input placeholder="Enter email" />
+    //
+    // Expression container (template literal or ternary):
+    //   <Pressable accessibilityLabel={`Filter by ${label}`} />
+    //   <Input placeholder={isLoading ? "Loading..." : "Enter email"} />
+    //
+    // Object literal containing translatable keys:
+    //   <Tabs.Screen options={{ title: "Tasks" }} />
+    //   <Stack.Screen options={{ title: "Profile", headerBackTitle: "Back" }} />
     JSXAttribute(nodePath) {
       const { name, value } = nodePath.node;
 
       const propName = t.isJSXIdentifier(name) ? name.name : null;
       if (!propName) return;
-      if (NON_TRANSLATABLE_PROP_NAMES.has(propName)) return;
-      if (!TRANSLATABLE_PROP_NAMES.has(propName)) return;
-      if (!t.isStringLiteral(value)) return;
-      if (!isExtractable(value.value)) return;
 
-      const { key, fullKey } = buildFullKey(namespace, value.value, maxKeyLen);
-      results.push({
-        filePath,
-        namespace,
-        key,
-        fullKey,
-        originalText: value.value,
-        translationValue: value.value,
-        params: [],
-        sourceType: "jsx-attribute",
-        propName,
-      });
+      /**
+       * Merge the static translatable prop names with any user-configured
+       * additions. We build this once per file rather than on every attribute
+       * visit to avoid redundant Set construction.
+       */
+      const effectiveTranslatablePropNames =
+        config.additionalTranslatablePropNames.length > 0
+          ? new Set([
+              ...TRANSLATABLE_PROP_NAMES,
+              ...config.additionalTranslatablePropNames,
+            ])
+          : TRANSLATABLE_PROP_NAMES;
+
+      // ── Case A: direct string value ──────────────────────────────────────
+      // <Button title="Submit" />
+      if (t.isStringLiteral(value)) {
+        if (NON_TRANSLATABLE_PROP_NAMES.has(propName)) return;
+        if (!effectiveTranslatablePropNames.has(propName)) return;
+        if (!isExtractable(value.value, config)) return;
+
+        const builtKey = buildFullKey(namespace, value.value, maxKeyLen);
+        if (!builtKey) return;
+        const { key, fullKey } = builtKey;
+        results.push({
+          filePath,
+          namespace,
+          key,
+          fullKey,
+          originalText: value.value,
+          translationValue: value.value,
+          params: [],
+          sourceType: "jsx-attribute",
+          propName,
+        });
+        return;
+      }
+
+      // ── Case B: expression container ─────────────────────────────────────
+      // <Pressable accessibilityLabel={`Filter by ${label}`} />
+      // <Input placeholder={isLoading ? "Loading..." : "Enter email"} />
+      if (t.isJSXExpressionContainer(value)) {
+        const expr = value.expression;
+        if (!expr || t.isJSXEmptyExpression(expr)) return;
+
+        // Sub-case B1: expression on a translatable prop
+        // e.g. accessibilityLabel={`Filter by ${label}`}
+        if (
+          !NON_TRANSLATABLE_PROP_NAMES.has(propName) &&
+          TRANSLATABLE_PROP_NAMES.has(propName)
+        ) {
+          extractFromExpression(
+            expr,
+            results,
+            namespace,
+            filePath,
+            maxKeyLen,
+            "jsx-attribute",
+          );
+          return;
+        }
+
+        // Sub-case B2: object literal on any prop
+        // e.g. options={{ title: "Tasks", headerBackTitle: "Back" }}
+        // We walk into the object and check each property key
+        // independently against the translatable names lists.
+        if (t.isObjectExpression(expr)) {
+          for (const prop of expr.properties) {
+            if (!t.isObjectProperty(prop)) continue;
+            if (prop.computed) continue; // skip dynamic keys: { [key]: "..." }
+
+            const objKeyName = t.isIdentifier(prop.key)
+              ? prop.key.name
+              : t.isStringLiteral(prop.key)
+                ? prop.key.value
+                : null;
+
+            if (!objKeyName) continue;
+            if (NON_TRANSLATABLE_PROP_NAMES.has(objKeyName)) continue;
+            if (!effectiveTranslatablePropNames.has(objKeyName)) continue;
+
+            extractFromExpression(
+              prop.value as t.Expression,
+              results,
+              namespace,
+              filePath,
+              maxKeyLen,
+              "jsx-attribute",
+            );
+          }
+        }
+      }
     },
 
     // ── 4. Alert.alert() and custom call patterns ─────────────────────────────
@@ -944,12 +1224,14 @@ export function extractStringsFromFile(
         return;
       }
 
-      // ── useState-style setters: setError("..."), setMessage(`...`) ───────────
-      // Default on unless config.detectStateSetters === false
+      // ── useState-style setters ────────────────────────────────────────────
+      // setError("..."), setMessage(`...`), setTitle("...")
+      // Detected when config.detectStateSetters is true (default).
+      // Only the first argument is extracted — state setters
+      // almost always receive a single user-facing string.
       if (config.detectStateSetters !== false && /^set[A-Z]/.test(calleeName)) {
         const arg0 = nodePath.node.arguments[0];
-        if (!arg0 || arg0.type === "SpreadElement") return;
-        if (!t.isExpression(arg0)) return;
+        if (!arg0 || !t.isExpression(arg0)) return;
 
         extractFromExpression(
           arg0,
@@ -959,6 +1241,7 @@ export function extractStringsFromFile(
           maxKeyLen,
           "call",
         );
+        return;
       }
     },
 
@@ -989,11 +1272,10 @@ export function extractStringsFromFile(
 
       // throw 'message' (uncommon but valid)
       if (t.isStringLiteral(argument) && isExtractable(argument.value)) {
-        const { key, fullKey } = buildFullKey(
-          namespace,
-          argument.value,
-          maxKeyLen,
-        );
+        const builtKey = buildFullKey(namespace, argument.value, maxKeyLen);
+        if (!builtKey) return;
+        const { key, fullKey } = builtKey;
+
         results.push({
           filePath,
           namespace,
@@ -1017,6 +1299,72 @@ export function extractStringsFromFile(
         maxKeyLen,
         "return", // or a new sourceType e.g. "return"
         true, // ← strictUiCopy
+      );
+    },
+
+    // ── 6. Object literals ────────────────────────────────────────────────────
+    //
+    // Detects translatable strings inside plain TypeScript object literals
+    // when config.detectObjectLiterals is true.
+    //
+    // Covers:
+    //   export const TASK_FILTERS = [{ label: "All" }, { label: "Active" }]
+    //   const infoItems = { tasksLimit: { title: "Tasks Limit", details: [...] } }
+    //
+    // Only top-level object literals and objects inside arrays are processed.
+    // Objects inside function call arguments, JSX props, and return statements
+    // are handled by their own visitors — processing them here too would cause
+    // duplicate extractions.
+    ObjectExpression(nodePath) {
+      if (!config.detectObjectLiterals) return;
+
+      /**
+       * Scope guard: only process objects that are directly assigned to a
+       * variable or are elements of an array literal.
+       *
+       * This prevents double-extraction of objects that are already handled
+       * by other visitors:
+       *   - JSX attribute objects: options={{ title: "..." }} → JSXAttribute visitor
+       *   - Alert button arrays: Alert.alert(..., [...]) → extractAlertButtonTexts
+       *   - Function call args: fn({ text: "..." }) → CallExpression visitor
+       *   - Return statement objects: return { label: "..." } → ReturnStatement visitor
+       */
+      const parent = nodePath.parent;
+      const parentType = (parent as any)?.type;
+
+      const isVariableInit = parentType === "VariableDeclarator";
+      const isArrayElement = parentType === "ArrayExpression";
+      const isReturnArg = parentType === "ReturnStatement";
+      const isObjectPropValue =
+        parentType === "ObjectProperty" || parentType === "Property";
+
+      /**
+       * Process objects that are:
+       *   - Assigned to a variable: const x = { ... }
+       *   - Inside an array: [{ ... }, { ... }]
+       *   - Directly returned: return { title: "...", details: [...] }
+       *   - A value inside another object (nested): { outer: { inner: "..." } }
+       *     — handled by extractFromObjectLiteral's recursion, but we still
+       *     need the visitor to fire on the top-level object.
+       *
+       * Skip objects inside JSX attributes (handled by visitJSXAttribute)
+       * and function call arguments (too broad, handled by customDetectCallsWithObjects).
+       */
+      if (
+        !isVariableInit &&
+        !isArrayElement &&
+        !isReturnArg &&
+        !isObjectPropValue
+      )
+        return;
+
+      extractFromObjectLiteral(
+        nodePath.node,
+        config,
+        results,
+        namespace,
+        filePath,
+        maxKeyLen,
       );
     },
   });
@@ -1052,11 +1400,25 @@ export async function scanProject(
   config: EaiConfig,
 ): Promise<ExtractedString[]> {
   // ── Discover files ─────────────────────────────────────────────────────────
-  const files = await glob("**/*.{ts,tsx,js,jsx}", {
+
+  const files = await fg("**/*.{ts,tsx,js,jsx}", {
     cwd: appRoot,
     absolute: true,
-    ignore: [...HARD_EXCLUDED_DIRS, ...config.exclude],
+    ignore: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/.git/**",
+      // ...
+      ...config.exclude,
+    ],
   });
+
+  if (!Array.isArray(files)) {
+    throw new Error(
+      `fast-glob() did not return an array (got ${typeof files}). Check fast-glob version and await.`,
+    );
+  }
 
   // ── Apply .gitignore rules ─────────────────────────────────────────────────
   const ig = ignoreLib();

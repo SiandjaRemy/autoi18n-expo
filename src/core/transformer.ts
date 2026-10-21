@@ -764,6 +764,9 @@ export function transformFile(
 
     visitJSXAttribute(nodePath) {
       const { value } = nodePath.node;
+
+      // ── Case A: plain string attribute ───────────────────────────────────
+      // <Button title="Submit" />
       if (value?.type === "StringLiteral" || value?.type === "Literal") {
         if (typeof value.value === "string") {
           const extracted = findExtracted(
@@ -793,7 +796,75 @@ export function transformFile(
             totalReplacements++;
           }
         }
+        this.traverse(nodePath);
+        return;
       }
+
+      // ── Case B: expression container ─────────────────────────────────────
+      // <Pressable accessibilityLabel={`Filter by ${label}`} />
+      // <Input placeholder={isLoading ? "Loading..." : "Enter email"} />
+      // <Tabs.Screen options={{ title: "Tasks" }} />
+      if (value?.type === "JSXExpressionContainer") {
+        const expr = value.expression;
+        if (!expr || expr.type === "JSXEmptyExpression") {
+          this.traverse(nodePath);
+          return;
+        }
+
+        const strategy = resolveI18nStrategy(nodePath);
+        const useI18n = strategy === "i18n";
+
+        if (strategy === "t-helper") {
+          const fnPath = getEnclosingFunctionPath(nodePath);
+          if (fnPath) {
+            const name = getHelperName(fnPath.node, fnPath.parent?.node);
+            if (name) helpersNeedingT.set(name, fnPath.node);
+          }
+        }
+
+        // Sub-case B1: non-object expression on a known translatable prop
+        // e.g. accessibilityLabel={`Filter by ${label}`}
+        if (expr.type !== "ObjectExpression") {
+          const [newExpr, count] = replaceStringNode(
+            expr,
+            filePath,
+            fileStrings,
+            "jsx-attribute",
+            { useI18nInstance: useI18n },
+          );
+          if (count > 0) {
+            value.expression = newExpr;
+            totalReplacements += count;
+            if (useI18n) fileNeedsI18nImport = true;
+          }
+          this.traverse(nodePath);
+          return;
+        }
+
+        // Sub-case B2: object literal containing translatable keys
+        // e.g. options={{ title: "Tasks", headerBackTitle: "Back" }}
+        // Each matching property is replaced with a t() call directly —
+        // no JSXExpressionContainer wrapping since we are inside a JS object.
+        for (const prop of expr.properties ?? []) {
+          if (prop.type !== "ObjectProperty" && prop.type !== "Property")
+            continue;
+          if (prop.computed) continue;
+
+          const [newVal, count] = replaceStringNode(
+            prop.value,
+            filePath,
+            fileStrings,
+            "jsx-attribute",
+            { useI18nInstance: useI18n },
+          );
+          if (count > 0) {
+            prop.value = newVal;
+            totalReplacements += count;
+            if (useI18n) fileNeedsI18nImport = true;
+          }
+        }
+      }
+
       this.traverse(nodePath);
     },
 
@@ -849,12 +920,33 @@ export function transformFile(
             if (n > 0 && useI18n) fileNeedsI18nImport = true;
           }
         });
-      } else if (
-        calleeName &&
-        fileStrings.some((s) => s.sourceType === "call")
-      ) {
+      } else if (calleeName) {
+        /**
+         * Custom call patterns + state setters.
+         *
+         * Both are stored with sourceType "call" in the locale file.
+         * We check whether this callee name has any matching extracted
+         * strings rather than checking config directly — this way the
+         * transformer stays in sync with whatever the scanner detected.
+         */
+        const hasMatchingStrings = fileStrings.some(
+          (s) => s.sourceType === "call",
+        );
+        if (!hasMatchingStrings) {
+          this.traverse(nodePath);
+          return;
+        }
+
         const strategy = resolveI18nStrategy(nodePath, "jsx");
         const useI18n = strategy === "i18n";
+
+        if (strategy === "t-helper") {
+          const fnPath = getEnclosingFunctionPath(nodePath);
+          if (fnPath) {
+            const name = getHelperName(fnPath.node, fnPath.parent?.node);
+            if (name) helpersNeedingT.set(name, fnPath.node);
+          }
+        }
 
         args.forEach((arg: any, index: number) => {
           if (!arg || arg.type === "SpreadElement") return;
@@ -872,7 +964,7 @@ export function transformFile(
           }
         });
       }
-
+      
       this.traverse(nodePath);
     },
 
@@ -948,6 +1040,89 @@ export function transformFile(
 
     visitArrowFunctionExpression(nodePath) {
       registerComponent(nodePath, componentBlocks);
+      this.traverse(nodePath);
+    },
+
+    visitObjectProperty(nodePath) {
+      /**
+       * Only runs when config.detectObjectLiterals is true.
+       * Replaces string values in plain object literals that were
+       * extracted by the scanner's ObjectExpression visitor.
+       *
+       * Scope guard: skip object properties that are already handled
+       * by other visitors to avoid double-processing:
+       *   - JSX attribute objects → visitJSXAttribute (Case B2)
+       *   - Alert button objects → replaceAlertButtonsArg
+       *   - Return statement objects → visitReturnStatement
+       */
+      if (!config.detectObjectLiterals) return this.traverse(nodePath);
+
+      const prop = nodePath.node;
+
+      /**
+       * Walk up to find what contains this ObjectExpression.
+       * We only want to process objects that are:
+       *   - Directly assigned to a variable: const X = { ... }
+       *   - Inside an array literal: [{ ... }, { ... }]
+       *
+       * Skip if the parent object is inside a JSX attribute, a call
+       * expression argument (handled elsewhere), or a return statement.
+       */
+      const objPath = nodePath.parent;
+      const objParent = objPath?.parent?.node;
+
+      const isVariableInit = objParent?.type === "VariableDeclarator";
+      const isArrayElement = objParent?.type === "ArrayExpression";
+
+      if (!isVariableInit && !isArrayElement) {
+        return this.traverse(nodePath);
+      }
+
+      if (prop.type !== "ObjectProperty" && prop.type !== "Property") {
+        return this.traverse(nodePath);
+      }
+      if (prop.computed) return this.traverse(nodePath);
+
+      const strategy = resolveI18nStrategy(nodePath, "string");
+      const useI18n = strategy === "i18n";
+
+      // Plain string value: title: "Tasks Limit"
+      // Template literal:   description: `Up to ${LIMIT} tasks`
+      // Ternary:            label: isActive ? "Active" : "Inactive"
+      const [newVal, count] = replaceStringNode(
+        prop.value,
+        filePath,
+        fileStrings,
+        "jsx-expression", // matches the sourceType set by the scanner
+        { useI18nInstance: useI18n },
+      );
+      if (count > 0) {
+        prop.value = newVal;
+        totalReplacements += count;
+        if (useI18n) fileNeedsI18nImport = true;
+      }
+
+      // Array of strings: details: ["First item", "Second item"]
+      if (prop.value?.type === "ArrayExpression") {
+        for (let i = 0; i < (prop.value.elements?.length ?? 0); i++) {
+          const element = prop.value.elements[i];
+          if (!element || element.type === "SpreadElement") continue;
+
+          const [newEl, c] = replaceStringNode(
+            element,
+            filePath,
+            fileStrings,
+            "jsx-expression",
+            { useI18nInstance: useI18n },
+          );
+          if (c > 0) {
+            prop.value.elements[i] = newEl;
+            totalReplacements += c;
+            if (useI18n) fileNeedsI18nImport = true;
+          }
+        }
+      }
+
       this.traverse(nodePath);
     },
   });
