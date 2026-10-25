@@ -40,6 +40,10 @@ program
   .command("scan")
   .description("Scan the app and generate locale files")
   .option("-p, --path <path>", "Root path of the project", ".")
+  .option(
+    "-o, --only <glob>",
+    "Limit scan to a glob relative to project root (e.g. src/utils/**)",
+  )
   .option("--dry-run", "Preview without writing files")
   .option(
     "-f, --fresh",

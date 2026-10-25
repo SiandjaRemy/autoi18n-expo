@@ -24,7 +24,7 @@ export default defineConfig({
    * chalk@4   — Expo ships chalk; v5 is ESM-only and would break CJS bundle.
    * commander — bundled so Expo's older commander hoist can't interfere.
    */
-  noExternal: ["fast-glob", "chalk", "commander"],
+  noExternal: ["fast-glob", "chalk", "commander", "recast"],
 
   external: [
     "@babel/generator",
@@ -35,6 +35,5 @@ export default defineConfig({
     "ignore",
     "jiti",
     "ora",
-    "recast",
   ],
 });

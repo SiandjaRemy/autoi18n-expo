@@ -14,6 +14,7 @@ import { exists } from "../utils/fs";
 
 interface ScanOptions {
   path: string;
+  only?: string;
   dryRun?: boolean;
   fresh?: boolean;
 }
@@ -40,6 +41,14 @@ export async function scan(options: ScanOptions): Promise<void> {
   const appRoot = path.resolve(options.path);
   const isDryRun = options.dryRun ?? false;
   const fresh = options.fresh ?? false;
+
+  // Safety measure
+  if (fresh && options.only) {
+    logger.error(
+      "--fresh cannot be combined with --only (would drop keys outside the scanned paths).",
+    );
+    process.exit(1);
+  }
 
   // ── Step 1: Load config ───────────────────────────────────────────────────
   const config = await requireConfig(appRoot);
@@ -74,6 +83,9 @@ export async function scan(options: ScanOptions): Promise<void> {
 
   logger.info(`  App root    : ${appRoot}`);
   logger.info(`  Language    : ${config.defaultLanguage}`);
+  if (options.only) {
+    logger.info(`  Only       : ${options.only}`);
+  }
   logger.info(`  Output      : ${outputPreview}`);
   logger.info(
     `  Alerts      : ${config.detectAlerts ? "detected" : "ignored"}`,
@@ -95,7 +107,9 @@ export async function scan(options: ScanOptions): Promise<void> {
 
   let strings: ExtractedString[];
   try {
-    strings = await scanProject(appRoot, config);
+    strings = await scanProject(appRoot, config, {
+      only: options.only,
+    });
     spinner.succeed(`Scan complete.`);
   } catch (err) {
     spinner.fail("Scan failed.");
@@ -104,15 +118,20 @@ export async function scan(options: ScanOptions): Promise<void> {
   }
 
   if (strings.length === 0) {
-    logger.warn("\n  No translatable strings found.");
-    logger.info(
-      "  Things to check:\n" +
-        "    • Is --path pointing to your Expo project root?\n" +
-        "    • Does your app have <Text> components with content?\n" +
-        "    • Are the relevant files excluded by your config or .gitignore?\n" +
-        "    • After replace, most copy lives in the locale file — " +
-        "scan only finds remaining hardcoded strings (existing keys are still kept unless --fresh).",
-    );
+    if (options.only) {
+      logger.warn(`\n  No strings under --only "${options.only}".`);
+      logger.info("  Check the path is relative to the project root.");
+    } else {
+      logger.warn("\n  No translatable strings found.");
+      logger.info(
+        "  Things to check:\n" +
+          "    • Is --path pointing to your Expo project root?\n" +
+          "    • Does your app have <Text> components with content?\n" +
+          "    • Are the relevant files excluded by your config or .gitignore?\n" +
+          "    • After replace, most copy lives in the locale file — " +
+          "scan only finds remaining hardcoded strings (existing keys are still kept unless --fresh).",
+      );
+    }
     process.exit(0);
   }
 
@@ -140,13 +159,13 @@ export async function scan(options: ScanOptions): Promise<void> {
 
   let confirmMessage: string;
 
-if (!localeExists) {
-  confirmMessage = `Create ${outputPreview} with ${strings.length} key(s)?`;
-} else if (fresh) {
-  confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (delete missing keys)?`;
-} else {
-  confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (add new keys, keep existing)?`;
-}
+  if (!localeExists) {
+    confirmMessage = `Create ${outputPreview} with ${strings.length} key(s)?`;
+  } else if (fresh) {
+    confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (delete missing keys)?`;
+  } else {
+    confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (add new keys, keep existing)?`;
+  }
   /**
    * Confirm wording reflects merge behaviour so users do not think
    * the entire locale file will be replaced by only this scan's keys.

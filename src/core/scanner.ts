@@ -180,6 +180,14 @@ const HARD_EXCLUDED_DIRS = [
   "**/android/**",
   "**/ios/**",
   "**/.git/**",
+  // Root-level config files — never contain user-facing strings
+  "tailwind.config.*",
+  "babel.config.*",
+  "metro.config.*",
+  "jest.config.*",
+  "app.config.*",
+  "expo-plugins/**",
+  "plugins/**",
 ];
 
 /**
@@ -216,6 +224,107 @@ const OBJECT_LITERAL_BUILTIN_EXCLUDE_KEYS = new Set([
   "status",
   "bg",
 ]);
+
+/**
+ * Returns true if an ObjectExpression looks like a React Native style object.
+ *
+ * Heuristic: if more than half of the property keys are known RN style
+ * property names, treat the whole object as a style object and skip it.
+ *
+ * This prevents values like "absolute", "hidden", "center" from being
+ * extracted when they appear as style prop values.
+ */
+const RN_STYLE_KEYS = new Set([
+  "position",
+  "display",
+  "overflow",
+  "justifyContent",
+  "alignItems",
+  "alignSelf",
+  "alignContent",
+  "flexDirection",
+  "flexWrap",
+  "flex",
+  "flexGrow",
+  "flexShrink",
+  "flexBasis",
+  "width",
+  "height",
+  "minWidth",
+  "minHeight",
+  "maxWidth",
+  "maxHeight",
+  "margin",
+  "marginTop",
+  "marginBottom",
+  "marginLeft",
+  "marginRight",
+  "marginHorizontal",
+  "marginVertical",
+  "padding",
+  "paddingTop",
+  "paddingBottom",
+  "paddingLeft",
+  "paddingRight",
+  "paddingHorizontal",
+  "paddingVertical",
+  "top",
+  "bottom",
+  "left",
+  "right",
+  "inset",
+  "borderRadius",
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomLeftRadius",
+  "borderBottomRightRadius",
+  "borderWidth",
+  "borderTopWidth",
+  "borderBottomWidth",
+  "borderLeftWidth",
+  "borderRightWidth",
+  "borderColor",
+  "borderStyle",
+  "backgroundColor",
+  "opacity",
+  "zIndex",
+  "elevation",
+  "shadowColor",
+  "shadowOffset",
+  "shadowOpacity",
+  "shadowRadius",
+  "transform",
+  "fontSize",
+  "fontWeight",
+  "fontFamily",
+  "fontStyle",
+  "lineHeight",
+  "letterSpacing",
+  "textAlign",
+  "textDecorationLine",
+  "textTransform",
+  "color",
+  "resizeMode",
+  "objectFit",
+  "gap",
+  "rowGap",
+  "columnGap",
+  "aspectRatio",
+]);
+
+function isStyleObject(objNode: t.ObjectExpression): boolean {
+  if (objNode.properties.length === 0) return false;
+
+  const keys = objNode.properties
+    .filter((p): p is t.ObjectProperty => t.isObjectProperty(p) && !p.computed)
+    .map((p) => (t.isIdentifier(p.key) ? p.key.name : null))
+    .filter(Boolean) as string[];
+
+  if (keys.length === 0) return false;
+
+  const styleKeyCount = keys.filter((k) => RN_STYLE_KEYS.has(k)).length;
+  return styleKeyCount / keys.length >= 0.5;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Key generation
@@ -376,8 +485,35 @@ function isExtractable(value: string, config?: EaiConfig): boolean {
   const trimmed = value.trim();
 
   if (trimmed.length < 2) return false;
+
+  // Pure numbers (with optional decimal)
   if (/^\d+(\.\d+)?$/.test(trimmed)) return false;
+
+  // Hex color values: #FF3B30, #fff, #000000
+  if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return false;
+
+  // Numbers with CSS/measurement units: 16px, 999px, 1.5rem, 100vh, 0%
+  if (/^\d+(\.\d+)?(px|em|rem|%|vh|vw|pt|dp|sp|rpx)$/.test(trimmed))
+    return false;
+
+  // Time abbreviations used as format tokens: 1m, 5m, 30m, 1h, 2h, 4h
+  // These are display format codes, not translatable labels
+  if (/^\d+[smhd]$/.test(trimmed)) return false;
+
+  // URLs
   if (/^https?:\/\//.test(trimmed)) return false;
+
+  // Android/iOS resource references: @style/..., @drawable/..., @color/...
+  if (/^@[a-zA-Z]/.test(trimmed)) return false;
+
+  // Package paths and file extensions: react-native/lib, nativewind/babel, .sql
+  if (/^\.?[a-z0-9]+\/[a-z0-9]/.test(trimmed)) return false;
+
+  // Boolean string literals
+  if (trimmed === "true" || trimmed === "false") return false;
+
+  // Null/undefined string literals
+  if (trimmed === "null" || trimmed === "undefined") return false;
 
   // Single-token checks — only apply when there are no spaces
   if (!trimmed.includes(" ")) {
@@ -391,16 +527,89 @@ function isExtractable(value: string, config?: EaiConfig): boolean {
     )
       return false;
 
-    // camelCase — has at least one uppercase letter after the first char
+    // camelCase
     if (
       config?.skipCamelCase !== false &&
       /^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)
     )
       return false;
 
-    // PascalCase — starts uppercase, has more uppercase inside
-    // e.g. "TaskLimit", "HomeScreen" — component names, not UI copy
+    // PascalCase with multiple capitals
     if (/^[A-Z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)) return false;
+
+    /**
+     * Known technical single-word values that appear frequently as
+     * prop values, style values, and status strings — never UI copy.
+     */
+    const TECHNICAL_SINGLE_WORDS = new Set([
+      // Style/layout values
+      "center",
+      "left",
+      "right",
+      "top",
+      "bottom",
+      "flex",
+      "block",
+      "hidden",
+      "absolute",
+      "relative",
+      "fixed",
+      "row",
+      "column",
+      "wrap",
+      "nowrap",
+      "contain",
+      "cover",
+      "stretch",
+      "auto",
+      "bold",
+      "normal",
+      "italic",
+      "none",
+      "solid",
+      "dashed",
+      "dotted",
+      // Status/state values
+      "active",
+      "inactive",
+      "pending",
+      "completed",
+      "failed",
+      "enabled",
+      "disabled",
+      "loading",
+      "idle",
+      "done",
+      "light",
+      "dark",
+      "system",
+      // Common prop values
+      "default",
+      "primary",
+      "secondary",
+      "warning",
+      "error",
+      "success",
+      "info",
+      "small",
+      "medium",
+      "large",
+      "horizontal",
+      "vertical",
+      "android",
+      "ios",
+      "web",
+      // Data values
+      "credit",
+      "debit",
+      "asc",
+      "desc",
+      "all",
+      "custom",
+      "min",
+      "max",
+    ]);
+    if (TECHNICAL_SINGLE_WORDS.has(trimmed.toLowerCase())) return false;
   }
 
   if (isCssClassString(trimmed)) return false;
@@ -440,32 +649,15 @@ function isLikelyUiCopy(value: string): boolean {
       "success",
       "retry",
       "search",
+      // Relative dates
+      "today",
+      "tomorrow",
+      "yesterday",
     ]);
     if (!UI_SINGLE_WORDS.has(trimmed.toLowerCase())) {
       return false;
     }
   }
-
-  // Known technical tokens (extend as needed)
-  const TECHNICAL = new Set([
-    "light",
-    "dark",
-    "system",
-    "auto",
-    "pending",
-    "completed",
-    "failed",
-    "active",
-    "inactive",
-    "credit",
-    "debit",
-    "row",
-    "column",
-    "center",
-    "left",
-    "right",
-  ]);
-  if (TECHNICAL.has(trimmed.toLowerCase())) return false;
 
   return true;
 }
@@ -808,6 +1000,10 @@ function extractFromObjectLiteral(
    *   level 2: infoItems.tasksLimit.title / details
    */
   if (depth > 3) return;
+
+  // Skip React Native style objects — their values are style constants,
+  // not user-facing strings
+  if (isStyleObject(objNode)) return;
 
   for (const prop of objNode.properties) {
     if (!t.isObjectProperty(prop)) continue;
@@ -1335,8 +1531,6 @@ export function extractStringsFromFile(
       const isVariableInit = parentType === "VariableDeclarator";
       const isArrayElement = parentType === "ArrayExpression";
       const isReturnArg = parentType === "ReturnStatement";
-      const isObjectPropValue =
-        parentType === "ObjectProperty" || parentType === "Property";
 
       /**
        * Process objects that are:
@@ -1350,13 +1544,10 @@ export function extractStringsFromFile(
        * Skip objects inside JSX attributes (handled by visitJSXAttribute)
        * and function call arguments (too broad, handled by customDetectCallsWithObjects).
        */
-      if (
-        !isVariableInit &&
-        !isArrayElement &&
-        !isReturnArg &&
-        !isObjectPropValue
-      )
-        return;
+      if (!isVariableInit && !isArrayElement && !isReturnArg) return;
+
+      // Skip React Native style objects
+      if (isStyleObject(nodePath.node)) return;
 
       extractFromObjectLiteral(
         nodePath.node,
@@ -1380,6 +1571,41 @@ export function extractStringsFromFile(
 // Project-level scanner
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Normalize --only so users can pass either a folder or a full glob.
+
+// src/utils          → src/utils/**/*.{ts,tsx,js,jsx}
+// src/utils/**       → src/utils/**/*.{ts,tsx,js,jsx}
+// src/utils/**/*.ts  → unchanged
+
+function normalizeOnlyPattern(only?: string): string {
+  const defaultPattern = "**/*.{ts,tsx,js,jsx}";
+  if (!only || !only.trim()) return defaultPattern;
+
+  let p = only.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+
+  // Bare directory or trailing /**
+  if (!p.includes("*") && !p.includes("?")) {
+    p = p.replace(/\/$/, "");
+    return `${p}/**/*.{ts,tsx,js,jsx}`;
+  }
+
+  if (p.endsWith("/**")) {
+    return `${p}/*.{ts,tsx,js,jsx}`;
+  }
+
+  if (p.endsWith("/**/*")) {
+    return `${p}.{ts,tsx,js,jsx}`;
+  }
+
+  // Already a file glob
+  return p;
+}
+
+export interface ScanProjectOptions {
+  // Glob relative to appRoot, e.g. "src/utils/**" or "src/utils/**/*.{ts,tsx}"
+  only?: string;
+}
+
 /**
  * Scans an entire Expo project and returns all translatable strings.
  *
@@ -1398,17 +1624,17 @@ export function extractStringsFromFile(
 export async function scanProject(
   appRoot: string,
   config: EaiConfig,
+  options: ScanProjectOptions = {},
 ): Promise<ExtractedString[]> {
+  const pattern = normalizeOnlyPattern(options.only);
   // ── Discover files ─────────────────────────────────────────────────────────
 
-  const files = await fg("**/*.{ts,tsx,js,jsx}", {
+  const files = await fg(pattern, {
     cwd: appRoot,
     absolute: true,
+    onlyFiles: true,
     ignore: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/build/**",
-      "**/.git/**",
+      ...HARD_EXCLUDED_DIRS,
       // ...
       ...config.exclude,
     ],
