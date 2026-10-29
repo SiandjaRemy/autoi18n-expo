@@ -458,7 +458,19 @@ export interface EaiConfig {
    * @example ['title', 'label', 'description', 'details', 'quote']
    */
   objectLiteralIncludeKeys: string[];
-  
+
+  /**
+   * Case-sensitive single tokens to never extract.
+   * Merged with the built-in DEFAULT_SINGLE_WORD_BLOCKLIST.
+   */
+  blockSingleWords?: string[];
+
+  /**
+   * Case-sensitive single tokens to always extract, even if
+   * present on the built-in or config blocklist.
+   */
+  allowSingleWords?: string[];
+
   /**
    * Skip strings that are purely camelCase identifiers with no spaces.
    * e.g. "tasksLimit", "myComponent", "handlePress"

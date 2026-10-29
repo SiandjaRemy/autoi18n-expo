@@ -71,6 +71,9 @@ export function generateInitialI18nFile(
  * This is simpler and more reliable than trying to inject into an
  * arbitrary user-edited file.
  *
+ * New strategy: patch the existing file with the new language code
+ * to preserve any manual update made by the user
+ *
  * We read the existing file to extract which languages are already
  * imported, then regenerate with all languages including the new one.
  *
@@ -102,34 +105,118 @@ export function addLocaleToI18nFile(
     return true;
   }
 
-  /**
-   * File exists — extract which languages are already present by
-   * parsing the import lines, then regenerate with the new one added.
-   */
-  const existingContent = fs.readFileSync(filePath, "utf-8");
-  const existingLanguages = extractLanguagesFromI18nFile(existingContent);
+  const existing = fs.readFileSync(filePath, "utf-8");
 
-  if (existingLanguages.includes(newLanguage)) {
+  if (localeAlreadyWired(existing, newLanguage)) {
     logger.dim(
-      `  ${config.i18nFilePath} already imports "${newLanguage}" — skipping`,
+      `  ${config.i18nFilePath} already wires "${newLanguage}" — skipping`,
     );
     return false;
   }
 
-  const allLanguages = [...existingLanguages, newLanguage];
-  const targetLanguages = allLanguages.filter(
-    (l) => l !== config.defaultLanguage,
-  );
+  const importPath = computeLocaleImportPath(config, newLanguage);
+  const next = injectLocaleIntoI18nSource(existing, newLanguage, importPath);
 
-  const content = buildI18nFileContent(
-    config.defaultLanguage,
-    targetLanguages,
-    config,
-  );
+  if (next === existing) {
+    logger.warn(
+      `  Could not auto-wire "${newLanguage}" into ${config.i18nFilePath}.\n` +
+        `  Add manually:\n` +
+        `    import ${newLanguage} from '${importPath}'\n` +
+        `    // and in resources: ${newLanguage}: { translation: ${newLanguage} },`,
+    );
+    return false;
+  }
 
-  writeFile(filePath, content);
+  writeFile(filePath, next);
   logger.success(`Updated ${config.i18nFilePath} — added "${newLanguage}"`);
   return true;
+}
+
+function localeAlreadyWired(source: string, lang: string): boolean {
+  // import en from '...'
+  const importRe = new RegExp(
+    `^import\\s+${lang}\\s+from\\s+['"][^'"]+['"]`,
+    "m",
+  );
+  // en: { translation: en }
+  const resourceRe = new RegExp(
+    `(^|\\s)${lang}\\s*:\\s*\\{\\s*translation\\s*:\\s*${lang}\\s*\\}`,
+    "m",
+  );
+  return importRe.test(source) && resourceRe.test(source);
+}
+
+function computeLocaleImportPath(config: EaiConfig, lang: string): string {
+  const i18nDir = path.dirname(
+    path.join("/", config.i18nFilePath ?? "src/i18n.ts"),
+  );
+  const localeFile = config.localeFileName
+    ? `${config.localesDir}/${lang}/${config.localeFileName}.json`
+    : `${config.localesDir}/${lang}.json`;
+  const relative = path
+    .relative(i18nDir, path.join("/", localeFile))
+    .replace(/\\/g, "/");
+  return relative.startsWith(".") ? relative : `./${relative}`;
+}
+
+/**
+ * 1) Insert `import <lang> from '<path>'` after the last import (or after react-i18next).
+ * 2) Insert `<lang>: { translation: <lang> },` inside resources: { ... }.
+ */
+function injectLocaleIntoI18nSource(
+  source: string,
+  lang: string,
+  importPath: string,
+): string {
+  let out = source;
+
+  // ── Import ───────────────────────────────────────────────────────────────
+  const importLine = `import ${lang} from '${importPath}'`;
+  if (!new RegExp(`^import\\s+${lang}\\s+from\\s+`, "m").test(out)) {
+    const importLines = [...out.matchAll(/^import\s+.+$/gm)];
+    if (importLines.length > 0) {
+      const last = importLines[importLines.length - 1];
+      const insertAt = (last.index ?? 0) + last[0].length;
+      out = out.slice(0, insertAt) + "\n" + importLine + out.slice(insertAt);
+    } else {
+      out = importLine + "\n" + out;
+    }
+  }
+
+  // ── resources entry ──────────────────────────────────────────────────────
+  const entryLine = `    ${lang}: { translation: ${lang} },`;
+  const entryRe = new RegExp(
+    `(^|\\s)${lang}\\s*:\\s*\\{\\s*translation\\s*:\\s*${lang}\\s*\\}`,
+    "m",
+  );
+  if (entryRe.test(out)) return out;
+
+  // resources: { ... }  — insert before the closing brace of resources
+  const resourcesMatch = out.match(/resources\s*:\s*\{/);
+  if (!resourcesMatch || resourcesMatch.index === undefined) {
+    return source; // can't find resources — leave file untouched
+  }
+
+  const openIdx = resourcesMatch.index + resourcesMatch[0].length;
+  // Find matching } for resources object (simple brace depth from openIdx)
+  let depth = 1;
+  let i = openIdx;
+  for (; i < out.length; i++) {
+    if (out[i] === "{") depth++;
+    else if (out[i] === "}") {
+      depth--;
+      if (depth === 0) break;
+    }
+  }
+  if (depth !== 0) return source;
+
+  // Insert before closing brace; keep a newline
+  const before = out.slice(0, i);
+  const after = out.slice(i);
+  const needsNewline = !before.endsWith("\n");
+  out = before + (needsNewline ? "\n" : "") + entryLine + "\n" + after;
+
+  return out;
 }
 
 /**
@@ -307,4 +394,35 @@ ${resourcesEntries}
 
 export default i18n
 `;
+}
+
+export function removeLocaleFromI18nFile(
+  appRoot: string,
+  config: EaiConfig,
+  lang: string,
+): boolean {
+  const filePath = resolveI18nFilePath(appRoot, config);
+  if (!fs.existsSync(filePath)) return false;
+
+  let source = fs.readFileSync(filePath, "utf-8");
+  const before = source;
+
+  // Remove import line
+  source = source.replace(
+    new RegExp(`^import\\s+${lang}\\s+from\\s+['"][^'"]+['"];?\\r?\\n?`, "m"),
+    "",
+  );
+
+  // Remove resources entry (with optional trailing comma handled simply)
+  source = source.replace(
+    new RegExp(
+      `\\s*${lang}\\s*:\\s*\\{\\s*translation\\s*:\\s*${lang}\\s*\\},?\\r?\\n?`,
+      "g",
+    ),
+    "\n",
+  );
+
+  if (source === before) return false;
+  writeFile(filePath, source);
+  return true;
 }

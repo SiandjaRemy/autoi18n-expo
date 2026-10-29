@@ -8,6 +8,17 @@ import path from "path";
 import { readFileSafe } from "../utils/fs";
 import { logger } from "../utils/logger";
 import type { EaiConfig } from "../types/config";
+import {
+  DEFAULT_SINGLE_WORD_BLOCKLIST,
+  DEFAULT_UI_SINGLE_WORDS,
+} from "../constants/string-filters";
+import {
+  HARD_EXCLUDED_DIRS,
+  NON_TRANSLATABLE_PROP_NAMES,
+  OBJECT_LITERAL_BUILTIN_EXCLUDE_KEYS,
+  RN_STYLE_KEYS,
+  TRANSLATABLE_PROP_NAMES,
+} from "../constants/scan-sets";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -110,207 +121,6 @@ export interface ExtractedString {
    */
   propName?: string;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * JSX prop names that carry user-visible text and should be extracted.
- *
- * Conservative by design — only props that are almost certainly
- * shown to the user. Add via customDetectCalls in config as needed.
- */
-const TRANSLATABLE_PROP_NAMES = new Set([
-  "title",
-  "message",
-  "placeholder",
-  "label",
-  "hint",
-  "subtitle",
-  "description",
-  "caption",
-  "errorMessage",
-  "helperText",
-  "emptyText",
-  "confirmText",
-  "cancelText",
-  "buttonText",
-  "header",
-  "footer",
-  "tooltip",
-  "accessibilityLabel",
-  "actionLabel",
-  "accessibilityHint",
-]);
-
-/**
- * Props that are definitively NOT user-visible text.
- * Checked before TRANSLATABLE_PROP_NAMES — takes priority.
- */
-const NON_TRANSLATABLE_PROP_NAMES = new Set([
-  "className",
-  "style",
-  "testID",
-  "name",
-  "key",
-  "id",
-  "type",
-  "variant",
-  "size",
-  "color",
-  "icon",
-  "source",
-  "href",
-  "to",
-  "from",
-  "currency",
-  "format",
-]);
-
-/**
- * Directories always excluded from scanning.
- * These never contain user-facing source code in an Expo project.
- */
-const HARD_EXCLUDED_DIRS = [
-  "**/node_modules/**",
-  "**/dist/**",
-  "**/build/**",
-  "**/.expo/**",
-  "**/android/**",
-  "**/ios/**",
-  "**/.git/**",
-  // Root-level config files — never contain user-facing strings
-  "tailwind.config.*",
-  "babel.config.*",
-  "metro.config.*",
-  "jest.config.*",
-  "app.config.*",
-  "expo-plugins/**",
-  "plugins/**",
-];
-
-/**
- * Object property key names that are never user-facing text.
- * Always skipped when detectObjectLiterals is true, regardless of
- * objectLiteralExcludeKeys config.
- */
-const OBJECT_LITERAL_BUILTIN_EXCLUDE_KEYS = new Set([
-  "id",
-  "value",
-  "key",
-  "name",
-  "type",
-  "color",
-  "icon",
-  "href",
-  "to",
-  "from",
-  "src",
-  "className",
-  "style",
-  "testID",
-  "variant",
-  "size",
-  "format",
-  "currency",
-  "path",
-  "route",
-  "screen",
-  "component",
-  "ref",
-  "role",
-  "filter",
-  "status",
-  "bg",
-]);
-
-/**
- * Returns true if an ObjectExpression looks like a React Native style object.
- *
- * Heuristic: if more than half of the property keys are known RN style
- * property names, treat the whole object as a style object and skip it.
- *
- * This prevents values like "absolute", "hidden", "center" from being
- * extracted when they appear as style prop values.
- */
-const RN_STYLE_KEYS = new Set([
-  "position",
-  "display",
-  "overflow",
-  "justifyContent",
-  "alignItems",
-  "alignSelf",
-  "alignContent",
-  "flexDirection",
-  "flexWrap",
-  "flex",
-  "flexGrow",
-  "flexShrink",
-  "flexBasis",
-  "width",
-  "height",
-  "minWidth",
-  "minHeight",
-  "maxWidth",
-  "maxHeight",
-  "margin",
-  "marginTop",
-  "marginBottom",
-  "marginLeft",
-  "marginRight",
-  "marginHorizontal",
-  "marginVertical",
-  "padding",
-  "paddingTop",
-  "paddingBottom",
-  "paddingLeft",
-  "paddingRight",
-  "paddingHorizontal",
-  "paddingVertical",
-  "top",
-  "bottom",
-  "left",
-  "right",
-  "inset",
-  "borderRadius",
-  "borderTopLeftRadius",
-  "borderTopRightRadius",
-  "borderBottomLeftRadius",
-  "borderBottomRightRadius",
-  "borderWidth",
-  "borderTopWidth",
-  "borderBottomWidth",
-  "borderLeftWidth",
-  "borderRightWidth",
-  "borderColor",
-  "borderStyle",
-  "backgroundColor",
-  "opacity",
-  "zIndex",
-  "elevation",
-  "shadowColor",
-  "shadowOffset",
-  "shadowOpacity",
-  "shadowRadius",
-  "transform",
-  "fontSize",
-  "fontWeight",
-  "fontFamily",
-  "fontStyle",
-  "lineHeight",
-  "letterSpacing",
-  "textAlign",
-  "textDecorationLine",
-  "textTransform",
-  "color",
-  "resizeMode",
-  "objectFit",
-  "gap",
-  "rowGap",
-  "columnGap",
-  "aspectRatio",
-]);
 
 function isStyleObject(objNode: t.ObjectExpression): boolean {
   if (objNode.properties.length === 0) return false;
@@ -470,6 +280,20 @@ export function normalizeJSXWhitespace(value: string): string {
 // Extractability checks
 // ─────────────────────────────────────────────────────────────────────────────
 
+type ExtractOptions = {
+  /** When true, skip single-word blocklist (e.g. object key "label") */
+  relaxSingleWordRules?: boolean;
+};
+
+function isBlockedSingleWord(token: string, config?: EaiConfig): boolean {
+  if (config?.allowSingleWords?.includes(token)) return false;
+
+  if (DEFAULT_SINGLE_WORD_BLOCKLIST.has(token)) return true;
+  if (config?.blockSingleWords?.includes(token)) return true;
+
+  return false;
+}
+
 /**
  * Returns true if a string is worth extracting as a translation.
  *
@@ -481,139 +305,53 @@ export function normalizeJSXWhitespace(value: string): string {
  *   - Code identifiers and slugs (cash_in, MY_CONSTANT, kebab-case)
  *   - CSS utility class strings (Tailwind/NativeWind)
  */
-function isExtractable(value: string, config?: EaiConfig): boolean {
+function isExtractable(
+  value: string,
+  config?: EaiConfig,
+  options: ExtractOptions = {},
+): boolean {
   const trimmed = value.trim();
 
   if (trimmed.length < 2) return false;
-
-  // Pure numbers (with optional decimal)
   if (/^\d+(\.\d+)?$/.test(trimmed)) return false;
-
-  // Hex color values: #FF3B30, #fff, #000000
   if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return false;
-
-  // Numbers with CSS/measurement units: 16px, 999px, 1.5rem, 100vh, 0%
   if (/^\d+(\.\d+)?(px|em|rem|%|vh|vw|pt|dp|sp|rpx)$/.test(trimmed))
     return false;
-
-  // Time abbreviations used as format tokens: 1m, 5m, 30m, 1h, 2h, 4h
-  // These are display format codes, not translatable labels
   if (/^\d+[smhd]$/.test(trimmed)) return false;
-
-  // URLs
   if (/^https?:\/\//.test(trimmed)) return false;
-
-  // Android/iOS resource references: @style/..., @drawable/..., @color/...
   if (/^@[a-zA-Z]/.test(trimmed)) return false;
-
-  // Package paths and file extensions: react-native/lib, nativewind/babel, .sql
   if (/^\.?[a-z0-9]+\/[a-z0-9]/.test(trimmed)) return false;
-
-  // Boolean string literals
   if (trimmed === "true" || trimmed === "false") return false;
-
-  // Null/undefined string literals
   if (trimmed === "null" || trimmed === "undefined") return false;
 
-  // Single-token checks — only apply when there are no spaces
   if (!trimmed.includes(" ")) {
-    // ALL_CAPS constant
-    if (trimmed === trimmed.toUpperCase() && trimmed.length > 2) return false;
+    // Allowlisted object keys (label, title, …): keep "IDLE", "DONE", etc.
+    if (!options.relaxSingleWordRules) {
+      if (isBlockedSingleWord(trimmed, config)) return false;
+    }
 
-    // snake_case or kebab-case
-    if (
-      config?.skipSnakeCase !== false &&
-      /^[a-zA-Z][a-zA-Z0-9]*([_-][a-zA-Z0-9]+)+$/.test(trimmed)
-    )
-      return false;
-
-    // camelCase
-    if (
-      config?.skipCamelCase !== false &&
-      /^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)
-    )
-      return false;
-
-    // PascalCase with multiple capitals
-    if (/^[A-Z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)) return false;
-
-    /**
-     * Known technical single-word values that appear frequently as
-     * prop values, style values, and status strings — never UI copy.
-     */
-    const TECHNICAL_SINGLE_WORDS = new Set([
-      // Style/layout values
-      "center",
-      "left",
-      "right",
-      "top",
-      "bottom",
-      "flex",
-      "block",
-      "hidden",
-      "absolute",
-      "relative",
-      "fixed",
-      "row",
-      "column",
-      "wrap",
-      "nowrap",
-      "contain",
-      "cover",
-      "stretch",
-      "auto",
-      "bold",
-      "normal",
-      "italic",
-      "none",
-      "solid",
-      "dashed",
-      "dotted",
-      // Status/state values
-      "active",
-      "inactive",
-      "pending",
-      "completed",
-      "failed",
-      "enabled",
-      "disabled",
-      "loading",
-      "idle",
-      "done",
-      "light",
-      "dark",
-      "system",
-      // Common prop values
-      "default",
-      "primary",
-      "secondary",
-      "warning",
-      "error",
-      "success",
-      "info",
-      "small",
-      "medium",
-      "large",
-      "horizontal",
-      "vertical",
-      "android",
-      "ios",
-      "web",
-      // Data values
-      "credit",
-      "debit",
-      "asc",
-      "desc",
-      "all",
-      "custom",
-      "min",
-      "max",
-    ]);
-    if (TECHNICAL_SINGLE_WORDS.has(trimmed.toLowerCase())) return false;
+    // Identifiers / slugs — still skip unless relaxed
+    if (!options.relaxSingleWordRules) {
+      if (
+        config?.skipSnakeCase !== false &&
+        /^[a-zA-Z][a-zA-Z0-9]*([_-][a-zA-Z0-9]+)+$/.test(trimmed)
+      ) {
+        return false;
+      }
+      if (
+        config?.skipCamelCase !== false &&
+        /^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)
+      ) {
+        return false;
+      }
+      // Optional: multi-hump PascalCase only when not relaxed
+      if (/^[A-Z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$/.test(trimmed)) {
+        return false;
+      }
+    }
   }
 
   if (isCssClassString(trimmed)) return false;
-
   return true;
 }
 
@@ -621,44 +359,16 @@ function isExtractable(value: string, config?: EaiConfig): boolean {
  * Stricter check for strings found in return statements.
  * JSX / Alert / throw already have high signal; returns do not.
  */
-function isLikelyUiCopy(value: string): boolean {
+function isLikelyUiCopy(value: string, config?: EaiConfig): boolean {
   const trimmed = value.trim();
+  if (!isExtractable(trimmed, config)) return false;
 
-  // Must still pass the general rules
-  if (!isExtractable(trimmed)) return false;
-
-  // Single token with no spaces → usually a code value ("light", "pending")
-  // Allow a small set of real UI labels
   if (!/\s/.test(trimmed)) {
-    const UI_SINGLE_WORDS = new Set([
-      "submit",
-      "cancel",
-      "confirm",
-      "delete",
-      "save",
-      "close",
-      "continue",
-      "back",
-      "next",
-      "done",
-      "ok",
-      "yes",
-      "no",
-      "loading",
-      "error",
-      "success",
-      "retry",
-      "search",
-      // Relative dates
-      "today",
-      "tomorrow",
-      "yesterday",
-    ]);
-    if (!UI_SINGLE_WORDS.has(trimmed.toLowerCase())) {
-      return false;
-    }
+    const allowed =
+      DEFAULT_UI_SINGLE_WORDS.has(trimmed.toLowerCase()) ||
+      config?.allowSingleWords?.includes(trimmed);
+    if (!allowed) return false;
   }
-
   return true;
 }
 
@@ -794,11 +504,14 @@ function extractFromExpression(
   sourceType: ExtractedString["sourceType"],
   strictUiCopy = false,
   config?: EaiConfig,
+  relaxSingleWordRules = false,
 ): void {
   if (!expr || t.isJSXEmptyExpression(expr)) return;
 
   const passes = (value: string) =>
-    strictUiCopy ? isLikelyUiCopy(value) : isExtractable(value, config);
+    strictUiCopy
+      ? isLikelyUiCopy(value, config)
+      : isExtractable(value, config, { relaxSingleWordRules });
 
   // ── String literal ─────────────────────────────────────────────────────────
   if (t.isStringLiteral(expr)) {
@@ -825,7 +538,7 @@ function extractFromExpression(
   if (t.isTemplateLiteral(expr)) {
     if (templateHasOnlyIdentifierExpressions(expr)) {
       const { text, params } = processTemplateLiteral(expr);
-      if (!isExtractable(text)) return;
+      if (!isExtractable(text, config, { relaxSingleWordRules })) return;
 
       const builtKey = buildFullKey(namespace, text, maxKeyLen);
       if (!builtKey) return;
@@ -853,6 +566,9 @@ function extractFromExpression(
         filePath,
         maxKeyLen,
         sourceType,
+        strictUiCopy,
+        config,
+        relaxSingleWordRules,
       );
     }
     return;
@@ -871,6 +587,8 @@ function extractFromExpression(
       maxKeyLen,
       sourceType,
       strictUiCopy,
+      config,
+      relaxSingleWordRules,
     );
     extractFromExpression(
       expr.alternate,
@@ -880,6 +598,8 @@ function extractFromExpression(
       maxKeyLen,
       sourceType,
       strictUiCopy,
+      config,
+      relaxSingleWordRules,
     );
     return;
   }
@@ -896,6 +616,8 @@ function extractFromExpression(
       maxKeyLen,
       sourceType,
       strictUiCopy,
+      config,
+      relaxSingleWordRules,
     );
     extractFromExpression(
       expr.right,
@@ -905,6 +627,8 @@ function extractFromExpression(
       maxKeyLen,
       sourceType,
       strictUiCopy,
+      config,
+      relaxSingleWordRules,
     );
     return;
   }
@@ -930,6 +654,7 @@ function extractAlertButtonTexts(
   namespace: string,
   filePath: string,
   maxKeyLen: number,
+  config: EaiConfig,
 ): void {
   if (!t.isArrayExpression(buttonsArg)) return;
 
@@ -957,6 +682,8 @@ function extractAlertButtonTexts(
         filePath,
         maxKeyLen,
         "alert",
+        false,
+        config,
       );
     }
   }
@@ -1042,6 +769,10 @@ function extractFromObjectLiteral(
       if (config.objectLiteralExcludeKeys.includes(keyName)) continue;
     }
 
+    const relax =
+      config.objectLiteralIncludeKeys.length > 0 &&
+      config.objectLiteralIncludeKeys.includes(keyName);
+
     // ── Array value: details: ["item one", "item two"] ───────────────────────
     if (t.isArrayExpression(prop.value)) {
       for (const element of prop.value.elements) {
@@ -1056,6 +787,7 @@ function extractFromObjectLiteral(
           "jsx-expression",
           false,
           config,
+          relax,
         );
       }
       continue;
@@ -1072,6 +804,7 @@ function extractFromObjectLiteral(
         "jsx-expression",
         false,
         config,
+        relax,
       );
     }
   }
@@ -1127,6 +860,7 @@ function extractStringArgs(
   filePath: string,
   maxKeyLen: number,
   sourceType: ExtractedString["sourceType"],
+  config?: EaiConfig,
 ): void {
   for (const arg of args) {
     if (t.isSpreadElement(arg)) continue;
@@ -1139,6 +873,8 @@ function extractStringArgs(
       filePath,
       maxKeyLen,
       sourceType,
+      false,
+      config,
     );
   }
 }
@@ -1250,6 +986,8 @@ export function extractStringsFromFile(
         filePath,
         maxKeyLen,
         "jsx-expression",
+        false,
+        config,
       );
     },
 
@@ -1329,6 +1067,8 @@ export function extractStringsFromFile(
             filePath,
             maxKeyLen,
             "jsx-attribute",
+            false,
+            config,
           );
           return;
         }
@@ -1359,6 +1099,8 @@ export function extractStringsFromFile(
               filePath,
               maxKeyLen,
               "jsx-attribute",
+              false,
+              config,
             );
           }
         }
@@ -1392,6 +1134,8 @@ export function extractStringsFromFile(
             filePath,
             maxKeyLen,
             "alert",
+            false,
+            config,
           );
         }
 
@@ -1402,6 +1146,7 @@ export function extractStringsFromFile(
             namespace,
             filePath,
             maxKeyLen,
+            config,
           );
         }
         return;
@@ -1416,6 +1161,7 @@ export function extractStringsFromFile(
           filePath,
           maxKeyLen,
           "call",
+          config,
         );
         return;
       }
@@ -1436,6 +1182,8 @@ export function extractStringsFromFile(
           filePath,
           maxKeyLen,
           "call",
+          false,
+          config,
         );
         return;
       }
@@ -1462,12 +1210,16 @@ export function extractStringsFromFile(
           filePath,
           maxKeyLen,
           "throw",
+          config,
         );
         return;
       }
 
       // throw 'message' (uncommon but valid)
-      if (t.isStringLiteral(argument) && isExtractable(argument.value)) {
+      if (
+        t.isStringLiteral(argument) &&
+        isExtractable(argument.value, config)
+      ) {
         const builtKey = buildFullKey(namespace, argument.value, maxKeyLen);
         if (!builtKey) return;
         const { key, fullKey } = builtKey;
@@ -1495,6 +1247,7 @@ export function extractStringsFromFile(
         maxKeyLen,
         "return", // or a new sourceType e.g. "return"
         true, // ← strictUiCopy
+        config,
       );
     },
 

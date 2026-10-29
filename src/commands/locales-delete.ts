@@ -5,9 +5,12 @@ import { confirm } from "../utils/prompt";
 import { requireConfig } from "../utils/config";
 import { resolveLocaleFilePath } from "../core/scaffolder";
 import { validateLanguageCodes } from "../utils/validation";
-import { writeFile } from "../utils/fs";
 import type { EaiConfig } from "../types/config";
-import { buildI18nFileContent, extractLanguagesFromI18nFile, resolveI18nFilePath } from "../utils/i18n-file";
+import {
+  extractLanguagesFromI18nFile,
+  removeLocaleFromI18nFile,
+  resolveI18nFilePath,
+} from "../utils/i18n-file";
 
 export interface LocalesDeleteOptions {
   path: string;
@@ -54,13 +57,13 @@ function removeLanguagesFromI18nFile(
   const targets = remaining.filter((l) => l !== defaultLang);
   const hasDefault = remaining.includes(defaultLang);
 
-  const next = buildI18nFileContent(
-    hasDefault ? defaultLang : (remaining[0] ?? defaultLang),
-    targets,
-    config,
-  );
+  let removedFromI18n = false;
+  for (const lang of targets) {
+    if (removeLocaleFromI18nFile(appRoot, config, lang)) {
+      removedFromI18n = true;
+    }
+  }
 
-  writeFile(filePath, next);
   return true;
 }
 

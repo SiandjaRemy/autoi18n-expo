@@ -10,7 +10,7 @@ import { validateLocalesDir } from "../utils/config";
 import { EaiConfig } from "../types/config";
 import { generateLocaleFile, resolveLocaleFilePath } from "../core/scaffolder";
 import { confirm } from "../utils/prompt";
-import { exists } from "../utils/fs";
+import { exists, readJson } from "../utils/fs";
 
 interface ScanOptions {
   path: string;
@@ -153,23 +153,46 @@ export async function scan(options: ScanOptions): Promise<void> {
     config.defaultLanguage,
     config.localeFileName,
   );
-  const localeExists = exists(localeFilePath); // or fs.existsSync
+  const localeExists = exists(localeFilePath);
+  const uniqueKeyCount = new Set(strings.map((s) => s.fullKey)).size;
 
   logger.newline();
 
   let confirmMessage: string;
 
   if (!localeExists) {
-    confirmMessage = `Create ${outputPreview} with ${strings.length} key(s)?`;
+    confirmMessage = `Create ${outputPreview} with ${uniqueKeyCount} key(s)?`;
   } else if (fresh) {
-    confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (delete missing keys)?`;
+    // No merge diff — rewrite from this scan
+    confirmMessage =
+      `Rewrite ${outputPreview} from ${uniqueKeyCount} unique key(s) ` +
+      `(remove keys missing from this scan)?`;
   } else {
-    confirmMessage = `Update ${outputPreview} from ${strings.length} scanned string(s) (add new keys, keep existing)?`;
+    const stats = getScanKeyStats(strings, localeFilePath);
+
+    logger.info(
+      `  Existing locale: ${stats.existingKeys} key(s) already present, ` +
+        `${chalk.bold(String(stats.newKeys))} new key(s) to add`,
+    );
+
+    if (stats.newKeys === 0) {
+      logger.success("  Locale already up to date — no new keys to add.");
+      logger.dim(
+        "  Pass --fresh if you want to drop keys missing from this scan.",
+      );
+      // Optional: still wire i18n + next steps without writing
+      if (config.i18nFilePath) {
+        addLocaleToI18nFile(appRoot, config, config.defaultLanguage);
+      }
+      printNextSteps(appRoot, config, { isNewFile: false, added: 0 });
+      return; // or process.exit(0)
+    }
+
+    confirmMessage =
+      `Add ${stats.newKeys} new key(s) to ${outputPreview} ` +
+      `(keep existing translations)?`;
   }
-  /**
-   * Confirm wording reflects merge behaviour so users do not think
-   * the entire locale file will be replaced by only this scan's keys.
-   */
+
   const shouldProceed = await confirm(confirmMessage);
 
   if (!shouldProceed) {
@@ -204,12 +227,16 @@ export async function scan(options: ScanOptions): Promise<void> {
     logger.success(`Created ${relativeLocale} with ${keyCount} key(s)`);
   } else {
     logger.success(`Updated ${relativeLocale} — ${keyCount} key(s) total`);
-    logger.info(`  Added   : ${added}`);
+    if (added > 0) {
+      logger.success(`  New keys added: ${added}`);
+    } else {
+      logger.info(`  New keys added: 0`);
+    }
     if (fresh) {
-      logger.info(`  Removed : ${removed}`);
+      logger.info(`  Removed: ${removed}`);
     } else {
       logger.dim(
-        "  Existing keys not found in this scan were kept (pass --fresh to remove them).",
+        "  Keys not found in this scan were kept (use --fresh to remove them).",
       );
     }
   }
@@ -241,7 +268,7 @@ export async function scan(options: ScanOptions): Promise<void> {
   }
 
   // ── Step 8: Next steps ────────────────────────────────────────────────────
-  printNextSteps(appRoot, config);
+  printNextSteps(appRoot, config, { isNewFile, added });
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Preview table
@@ -306,6 +333,42 @@ function printPreviewTable(strings: ExtractedString[]): void {
   );
 }
 
+function getScanKeyStats(
+  strings: ExtractedString[],
+  localeFilePath: string,
+): {
+  totalScanned: number;
+  uniqueKeys: number;
+  newKeys: number;
+  existingKeys: number;
+} {
+  const uniqueKeys = new Set(strings.map((s) => s.fullKey));
+  const existing = exists(localeFilePath)
+    ? (readJson<Record<string, string>>(localeFilePath) ?? {})
+    : null;
+
+  if (!existing) {
+    return {
+      totalScanned: strings.length,
+      uniqueKeys: uniqueKeys.size,
+      newKeys: uniqueKeys.size,
+      existingKeys: 0,
+    };
+  }
+
+  let newKeys = 0;
+  for (const key of uniqueKeys) {
+    if (!(key in existing)) newKeys++;
+  }
+
+  return {
+    totalScanned: strings.length,
+    uniqueKeys: uniqueKeys.size,
+    newKeys,
+    existingKeys: uniqueKeys.size - newKeys,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Next steps guide
 // ─────────────────────────────────────────────────────────────────────────────
@@ -316,7 +379,11 @@ function printPreviewTable(strings: ExtractedString[]): void {
  * Detects the Expo entry point (app/_layout.tsx for Expo Router,
  * App.tsx for bare Expo) and shows the correct import path for i18n.ts.
  */
-function printNextSteps(appRoot: string, config: EaiConfig): void {
+function printNextSteps(
+  appRoot: string,
+  config: EaiConfig,
+  meta?: { isNewFile: boolean; added: number },
+): void {
   logger.section("Next steps");
 
   const localeOutputPath = config.localeFileName
@@ -355,6 +422,20 @@ function printNextSteps(appRoot: string, config: EaiConfig): void {
   }
 
   let stepNum = 1;
+
+  if (meta && !meta.isNewFile) {
+    logger.info(`
+  Rescan complete${meta.added > 0 ? ` — ${meta.added} new key(s) in the default locale` : " — no new keys"}.
+
+  ${stepNum++}. If you added UI strings that still appear as literals, run:
+       ${chalk.cyan("eai replace")}
+
+  ${stepNum++}. Sync other languages:
+       ${chalk.cyan("eai locales-sync")}
+       ${chalk.gray("Adds missing keys to target locales (with unsyncedPrefix).")}
+  `);
+    return;
+  }
 
   logger.info(`
   ${stepNum++}. Make sure ${config.i18nFilePath} is imported in ${entryPointFile}:

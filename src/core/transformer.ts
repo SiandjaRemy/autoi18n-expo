@@ -279,17 +279,40 @@ function buildUseTranslationCall(): any {
 
 // ─── Lookup ─────────────────────────────────────────────────────────────────
 
+function buildTextIndex(
+  fileStrings: ExtractedString[],
+): Map<string, ExtractedString> {
+  const map = new Map<string, ExtractedString>();
+  for (const s of fileStrings) {
+    if (!map.has(s.originalText)) map.set(s.originalText, s);
+  }
+  return map;
+}
+
 function findExtracted(
   value: string,
   filePath: string,
   fileStrings: ExtractedString[],
   sourceType?: ExtractedString["sourceType"],
+  byText?: Map<string, ExtractedString>,
 ): ExtractedString | undefined {
+  const trimmed = value.trim();
+
+  if (sourceType) {
+    const exact = fileStrings.find(
+      (s) =>
+        s.filePath === filePath &&
+        s.originalText === trimmed &&
+        s.sourceType === sourceType,
+    );
+    if (exact) return exact;
+  }
+
+  if (byText?.has(trimmed)) return byText.get(trimmed);
+  if (value !== trimmed && byText?.has(value)) return byText.get(value);
+
   return fileStrings.find(
-    (s) =>
-      s.filePath === filePath &&
-      s.originalText === value.trim() &&
-      (sourceType ? s.sourceType === sourceType : true),
+    (s) => s.filePath === filePath && s.originalText === trimmed,
   );
 }
 
@@ -297,6 +320,7 @@ function findExtractedTemplate(
   node: any,
   filePath: string,
   fileStrings: ExtractedString[],
+  byText?: Map<string, ExtractedString>,
 ): ExtractedString | undefined {
   let text = "";
   let argIndex = 0;
@@ -319,9 +343,95 @@ function findExtractedTemplate(
     }
   });
 
+  const trimmed = text.trim();
+  if (byText?.has(trimmed)) return byText.get(trimmed);
+
   return fileStrings.find(
-    (s) => s.filePath === filePath && s.originalText === text.trim(),
+    (s) => s.filePath === filePath && s.originalText === trimmed,
   );
+}
+
+function isTypeWrapper(type: string | undefined): boolean {
+  return (
+    type === "TSAsExpression" ||
+    type === "TSSatisfiesExpression" ||
+    type === "TSTypeAssertion" ||
+    type === "TSNonNullExpression" ||
+    type === "ParenthesizedExpression"
+  );
+}
+
+function isUnderObjectLiteralRoot(nodePath: any): boolean {
+  // nodePath = ObjectProperty; parent = ObjectExpression
+  let current = nodePath.parent; // ObjectExpression
+  if (!current || current.node?.type !== "ObjectExpression") return false;
+
+  // Walk out through nested objects / array elements / properties
+  let p = current.parent;
+  while (p) {
+    const type = p.node?.type;
+
+    if (type === "VariableDeclarator") return true;
+    if (type === "ReturnStatement") return true;
+    if (type === "ExportDefaultDeclaration") return true;
+
+    // Nested objects: { done: { label: "..." } }
+    if (type === "ObjectExpression") {
+      p = p.parent;
+      continue;
+    }
+
+    // const X = [ { ... }, { ... } ]
+    if (type === "ArrayExpression") {
+      p = p.parent;
+      continue;
+    }
+    // outer: { nested: { label: "..." } }
+    if (type === "ObjectProperty" || type === "Property") {
+      p = p.parent;
+      continue;
+    }
+    // export const X = { ... }
+    if (type === "VariableDeclaration" || type === "ExportNamedDeclaration") {
+      p = p.parent;
+      continue;
+    }
+
+    // CRITICAL — walk through TS / paren wrappers
+    if (isTypeWrapper(type)) {
+      p = p.parent;
+      continue;
+    }
+
+    // {[...].map(...)} — array is callee.object of MemberExpression
+    if (type === "MemberExpression") {
+      p = p.parent;
+      continue;
+    }
+
+    // Inline in JSX: {[ { label: "All" }, ... ]}
+    if (type === "JSXExpressionContainer") {
+      p = p.parent;
+      continue;
+    }
+
+    // Attribute objects: options={{ title: "..." }} — handled by visitJSXAttribute
+    if (type === "JSXAttribute") return false;
+
+    // setItems([{ title, subtitle }]), etc.
+    if (type === "CallExpression") {
+      p = p.parent;
+      continue; // then often JSXExpressionContainer → JSXElement
+    }
+
+    // Reached JSX element with inline array data
+    if (type === "JSXElement" || type === "JSXFragment") {
+      return true; // inline data arrays in JSX
+    }
+
+    break;
+  }
+  return false;
 }
 
 // ─── Imports ────────────────────────────────────────────────────────────────
@@ -433,7 +543,10 @@ function injectTDeclaration(blockBody: any[]): void {
 
 // ─── Expression replacement ─────────────────────────────────────────────────
 
-type ReplaceOptions = { useI18nInstance?: boolean };
+type ReplaceOptions = {
+  useI18nInstance?: boolean;
+  byText?: Map<string, ExtractedString>;
+};
 
 function buildCallForExtracted(
   extracted: ExtractedString,
@@ -462,7 +575,13 @@ function replaceStringNode(
   if (node.type === "StringLiteral" || node.type === "Literal") {
     const value = node.value;
     if (typeof value !== "string") return [node, 0];
-    const extracted = findExtracted(value, filePath, fileStrings, sourceType);
+    const extracted = findExtracted(
+      value,
+      filePath,
+      fileStrings,
+      sourceType,
+      options.byText,
+    );
     if (!extracted) return [node, 0];
     return [buildCallForExtracted(extracted, useI18n), 1];
   }
@@ -547,6 +666,46 @@ function replaceStringNode(
     return [node, count];
   }
 
+  if (node.type === "ObjectExpression") {
+    let count = 0;
+    for (const prop of node.properties ?? []) {
+      if (prop.type !== "ObjectProperty" && prop.type !== "Property") continue;
+      if (prop.computed) continue;
+      const [newVal, c] = replaceStringNode(
+        prop.value,
+        filePath,
+        fileStrings,
+        sourceType,
+        options,
+      );
+      if (c > 0) {
+        prop.value = newVal;
+        count += c;
+      }
+    }
+    return [node, count];
+  }
+
+  if (node.type === "ArrayExpression") {
+    let count = 0;
+    for (let i = 0; i < (node.elements?.length ?? 0); i++) {
+      const el = node.elements[i];
+      if (!el || el.type === "SpreadElement") continue;
+      const [newEl, c] = replaceStringNode(
+        el,
+        filePath,
+        fileStrings,
+        sourceType,
+        options,
+      );
+      if (c > 0) {
+        node.elements[i] = newEl;
+        count += c;
+      }
+    }
+    return [node, count];
+  }
+
   return [node, 0];
 }
 
@@ -555,6 +714,7 @@ function replaceAlertButtonObject(
   filePath: string,
   fileStrings: ExtractedString[],
   useI18nInstance = false,
+  byText?: Map<string, ExtractedString>,
 ): number {
   if (obj?.type !== "ObjectExpression") return 0;
   let count = 0;
@@ -573,7 +733,7 @@ function replaceAlertButtonObject(
       filePath,
       fileStrings,
       "alert",
-      { useI18nInstance },
+      { useI18nInstance, byText },
     );
     if (c > 0) {
       prop.value = newValue;
@@ -588,6 +748,7 @@ function replaceAlertButtonsArg(
   filePath: string,
   fileStrings: ExtractedString[],
   useI18nInstance = false,
+  byText?: Map<string, ExtractedString>,
 ): number {
   if (arg?.type !== "ArrayExpression") return 0;
   let count = 0;
@@ -598,6 +759,7 @@ function replaceAlertButtonsArg(
         filePath,
         fileStrings,
         useI18nInstance,
+        byText,
       );
     }
   }
@@ -619,6 +781,9 @@ export function transformFile(
   const fileStrings = strings.filter(
     (s) => s.filePath === filePath && localeData[s.fullKey] !== undefined,
   );
+
+  const byText = buildTextIndex(fileStrings);
+
   if (fileStrings.length === 0) {
     return { filePath, modified: false, replacements: 0 };
   }
@@ -669,6 +834,7 @@ export function transformFile(
         filePath,
         fileStrings,
         "jsx-text",
+        byText,
       );
       if (!extracted) return this.traverse(nodePath);
 
@@ -747,18 +913,43 @@ export function transformFile(
         }
       }
 
+      const replaceOpts = { useI18nInstance: useI18n, byText };
+
+      // {[ { label: "All" }, ... ].map(...)}
+      if (
+        expr.type === "CallExpression" &&
+        expr.callee?.type === "MemberExpression" &&
+        expr.callee.object?.type === "ArrayExpression"
+      ) {
+        const [newArr, c] = replaceStringNode(
+          expr.callee.object,
+          filePath,
+          fileStrings,
+          "jsx-expression",
+          replaceOpts,
+        );
+        if (c > 0) {
+          expr.callee.object = newArr;
+          totalReplacements += c;
+          if (useI18n) fileNeedsI18nImport = true;
+        }
+      }
+
+      // LogicalExpression: condition && " — string"
+      // + any other expression replaceStringNode understands
       const [newExpr, count] = replaceStringNode(
         expr,
         filePath,
         fileStrings,
         "jsx-expression",
-        { useI18nInstance: useI18n },
+        replaceOpts,
       );
       if (count > 0) {
         nodePath.node.expression = newExpr;
         totalReplacements += count;
         if (useI18n) fileNeedsI18nImport = true;
       }
+
       this.traverse(nodePath);
     },
 
@@ -774,6 +965,7 @@ export function transformFile(
             filePath,
             fileStrings,
             "jsx-attribute",
+            byText,
           );
           if (extracted) {
             const strategy = resolveI18nStrategy(nodePath);
@@ -830,7 +1022,7 @@ export function transformFile(
             filePath,
             fileStrings,
             "jsx-attribute",
-            { useI18nInstance: useI18n },
+            { useI18nInstance: useI18n, byText },
           );
           if (count > 0) {
             value.expression = newExpr;
@@ -855,7 +1047,7 @@ export function transformFile(
             filePath,
             fileStrings,
             "jsx-attribute",
-            { useI18nInstance: useI18n },
+            { useI18nInstance: useI18n, byText },
           );
           if (count > 0) {
             prop.value = newVal;
@@ -902,7 +1094,7 @@ export function transformFile(
               filePath,
               fileStrings,
               "alert",
-              { useI18nInstance: useI18n },
+              { useI18nInstance: useI18n, byText },
             );
             if (count > 0) {
               nodePath.node.arguments[index] = newArg;
@@ -914,7 +1106,8 @@ export function transformFile(
               arg,
               filePath,
               fileStrings,
-              useI18n, // thread flag — see below
+              useI18n,
+              byText,
             );
             totalReplacements += n;
             if (n > 0 && useI18n) fileNeedsI18nImport = true;
@@ -955,7 +1148,7 @@ export function transformFile(
             filePath,
             fileStrings,
             "call",
-            { useI18nInstance: useI18n },
+            { useI18nInstance: useI18n, byText },
           );
           if (count > 0) {
             nodePath.node.arguments[index] = newArg;
@@ -964,7 +1157,7 @@ export function transformFile(
           }
         });
       }
-      
+
       this.traverse(nodePath);
     },
 
@@ -981,26 +1174,19 @@ export function transformFile(
       const useI18nInstance = !isNestedInsideComponent(nodePath);
 
       argument.arguments.forEach((arg: any, index: number) => {
-        if (
-          (arg.type !== "StringLiteral" && arg.type !== "Literal") ||
-          typeof arg.value !== "string"
-        ) {
-          return;
-        }
-        const extracted = findExtracted(
-          arg.value,
+        if (!arg || arg.type === "SpreadElement") return;
+        const [newArg, count] = replaceStringNode(
+          arg,
           filePath,
           fileStrings,
           "throw",
+          { useI18nInstance, byText },
         );
-        if (!extracted) return;
-
-        argument.arguments[index] = buildCallForExtracted(
-          extracted,
-          useI18nInstance,
-        );
-        totalReplacements++;
-        if (useI18nInstance) fileNeedsI18nImport = true;
+        if (count > 0) {
+          argument.arguments[index] = newArg;
+          totalReplacements += count;
+          if (useI18nInstance) fileNeedsI18nImport = true;
+        }
       });
 
       this.traverse(nodePath);
@@ -1013,18 +1199,31 @@ export function transformFile(
       const strategy = resolveI18nStrategy(nodePath, "string");
       const useI18n = strategy === "i18n";
 
+      /**
+       * Object / array returns (e.g. return { actions: [{ label: "..." }] })
+       * are scanned as object-literal leaves with sourceType "jsx-expression".
+       * Scalar returns (return "...") use sourceType "return".
+       * byText fallback covers mismatches either way.
+       */
+      const sourceType =
+        arg.type === "ObjectExpression" || arg.type === "ArrayExpression"
+          ? "jsx-expression"
+          : "return";
+
       const [newArg, count] = replaceStringNode(
         arg,
         filePath,
         fileStrings,
-        "return",
-        { useI18nInstance: useI18n },
+        sourceType,
+        { useI18nInstance: useI18n, byText },
       );
+
       if (count > 0) {
         nodePath.node.argument = newArg;
         totalReplacements += count;
         if (useI18n) fileNeedsI18nImport = true;
       }
+
       this.traverse(nodePath);
     },
 
@@ -1044,40 +1243,10 @@ export function transformFile(
     },
 
     visitObjectProperty(nodePath) {
-      /**
-       * Only runs when config.detectObjectLiterals is true.
-       * Replaces string values in plain object literals that were
-       * extracted by the scanner's ObjectExpression visitor.
-       *
-       * Scope guard: skip object properties that are already handled
-       * by other visitors to avoid double-processing:
-       *   - JSX attribute objects → visitJSXAttribute (Case B2)
-       *   - Alert button objects → replaceAlertButtonsArg
-       *   - Return statement objects → visitReturnStatement
-       */
       if (!config.detectObjectLiterals) return this.traverse(nodePath);
+      if (!isUnderObjectLiteralRoot(nodePath)) return this.traverse(nodePath);
 
       const prop = nodePath.node;
-
-      /**
-       * Walk up to find what contains this ObjectExpression.
-       * We only want to process objects that are:
-       *   - Directly assigned to a variable: const X = { ... }
-       *   - Inside an array literal: [{ ... }, { ... }]
-       *
-       * Skip if the parent object is inside a JSX attribute, a call
-       * expression argument (handled elsewhere), or a return statement.
-       */
-      const objPath = nodePath.parent;
-      const objParent = objPath?.parent?.node;
-
-      const isVariableInit = objParent?.type === "VariableDeclarator";
-      const isArrayElement = objParent?.type === "ArrayExpression";
-
-      if (!isVariableInit && !isArrayElement) {
-        return this.traverse(nodePath);
-      }
-
       if (prop.type !== "ObjectProperty" && prop.type !== "Property") {
         return this.traverse(nodePath);
       }
@@ -1086,15 +1255,12 @@ export function transformFile(
       const strategy = resolveI18nStrategy(nodePath, "string");
       const useI18n = strategy === "i18n";
 
-      // Plain string value: title: "Tasks Limit"
-      // Template literal:   description: `Up to ${LIMIT} tasks`
-      // Ternary:            label: isActive ? "Active" : "Inactive"
       const [newVal, count] = replaceStringNode(
         prop.value,
         filePath,
         fileStrings,
-        "jsx-expression", // matches the sourceType set by the scanner
-        { useI18nInstance: useI18n },
+        "jsx-expression", // scanner uses this for object literals
+        { useI18nInstance: useI18n, byText },
       );
       if (count > 0) {
         prop.value = newVal;
@@ -1102,18 +1268,16 @@ export function transformFile(
         if (useI18n) fileNeedsI18nImport = true;
       }
 
-      // Array of strings: details: ["First item", "Second item"]
       if (prop.value?.type === "ArrayExpression") {
         for (let i = 0; i < (prop.value.elements?.length ?? 0); i++) {
           const element = prop.value.elements[i];
           if (!element || element.type === "SpreadElement") continue;
-
           const [newEl, c] = replaceStringNode(
             element,
             filePath,
             fileStrings,
             "jsx-expression",
-            { useI18nInstance: useI18n },
+            { useI18nInstance: useI18n, byText },
           );
           if (c > 0) {
             prop.value.elements[i] = newEl;
