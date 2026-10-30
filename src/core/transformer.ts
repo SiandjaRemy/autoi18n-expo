@@ -8,6 +8,7 @@ import type { LocaleFile } from "./scaffolder";
 import { normalizeJSXWhitespace } from "../utils/normalize";
 import { requireConfig } from "../utils/config";
 import type { EaiConfig } from "../types/config";
+import { templateHasOnlySimpleExpressionsNode } from "../utils/templates";
 
 export interface TransformResult {
   filePath: string;
@@ -323,29 +324,28 @@ function findExtractedTemplate(
   byText?: Map<string, ExtractedString>,
 ): ExtractedString | undefined {
   let text = "";
-  let argIndex = 0;
+  const used = new Map<string, number>();
 
   node.quasis.forEach((quasi: any, i: number) => {
-    text += quasi.value.cooked ?? quasi.value.raw;
+    text += quasi.value.cooked ?? quasi.value.raw ?? "";
     if (i < node.expressions.length) {
       const expr = node.expressions[i];
-      let paramName: string;
-      if (expr.type === "Identifier") paramName = expr.name;
-      else if (
-        expr.type === "MemberExpression" &&
-        expr.property.type === "Identifier"
-      ) {
-        paramName = expr.property.name;
-      } else {
-        paramName = `arg${argIndex++}`;
-      }
-      text += `{{${paramName}}}`;
+      let name =
+        expr.type === "Identifier"
+          ? expr.name
+          : expr.type === "MemberExpression" &&
+              expr.property?.type === "Identifier"
+            ? expr.property.name
+            : `arg${i}`;
+      const n = (used.get(name) ?? 0) + 1;
+      used.set(name, n);
+      if (n > 1) name = `${name}${n}`;
+      text += `{{${name}}}`;
     }
   });
 
   const trimmed = text.trim();
   if (byText?.has(trimmed)) return byText.get(trimmed);
-
   return fileStrings.find(
     (s) => s.filePath === filePath && s.originalText === trimmed,
   );
@@ -562,6 +562,42 @@ function buildCallForExtracted(
     : buildTCall(extracted.fullKey);
 }
 
+function buildCallForExtractedWithExprParams(
+  extracted: ExtractedString,
+  expressions: any[],
+  useI18n: boolean,
+): any {
+  if (!extracted.params.length) {
+    return useI18n
+      ? buildI18nTCall(extracted.fullKey)
+      : buildTCall(extracted.fullKey);
+  }
+
+  const props = extracted.params.map((paramName, i) => {
+    const expr = expressions[i];
+    if (expr?.type === "Identifier" && expr.name === paramName) {
+      const prop = b.property(
+        "init",
+        b.identifier(paramName),
+        b.identifier(paramName),
+      );
+      prop.shorthand = true;
+      return prop;
+    }
+    // MemberExpression: { title: task.title }, { DEFAULT_NOTIF_COUNT: SCHEDULER_CONFIG.DEFAULT_NOTIF_COUNT }
+    return b.property("init", b.identifier(paramName), expr);
+  });
+
+  const args = [b.literal(extracted.fullKey), b.objectExpression(props)];
+  if (useI18n) {
+    return b.callExpression(
+      b.memberExpression(b.identifier("i18n"), b.identifier("t")),
+      args,
+    );
+  }
+  return b.callExpression(b.identifier("t"), args);
+}
+
 function replaceStringNode(
   node: any,
   filePath: string,
@@ -587,6 +623,24 @@ function replaceStringNode(
   }
 
   if (node.type === "TemplateLiteral") {
+    if (templateHasOnlySimpleExpressionsNode(node)) {
+      const extracted = findExtractedTemplate(
+        node,
+        filePath,
+        fileStrings,
+        options.byText,
+      );
+      if (!extracted) return [node, 0];
+      return [
+        buildCallForExtractedWithExprParams(
+          extracted,
+          node.expressions,
+          useI18n,
+        ),
+        1,
+      ];
+    }
+
     const onlyIds = (node.expressions ?? []).every(
       (expr: any) => expr.type === "Identifier",
     );
@@ -1114,32 +1168,15 @@ export function transformFile(
           }
         });
       } else if (calleeName) {
-        /**
-         * Custom call patterns + state setters.
-         *
-         * Both are stored with sourceType "call" in the locale file.
-         * We check whether this callee name has any matching extracted
-         * strings rather than checking config directly — this way the
-         * transformer stays in sync with whatever the scanner detected.
-         */
-        const hasMatchingStrings = fileStrings.some(
-          (s) => s.sourceType === "call",
-        );
-        if (!hasMatchingStrings) {
+        // Rewrite any call args that match scanned strings (byText),
+        // not only sourceType === "call"
+        if (fileStrings.length === 0) {
           this.traverse(nodePath);
           return;
         }
 
-        const strategy = resolveI18nStrategy(nodePath, "jsx");
+        const strategy = resolveI18nStrategy(nodePath, "string"); // module util → i18n
         const useI18n = strategy === "i18n";
-
-        if (strategy === "t-helper") {
-          const fnPath = getEnclosingFunctionPath(nodePath);
-          if (fnPath) {
-            const name = getHelperName(fnPath.node, fnPath.parent?.node);
-            if (name) helpersNeedingT.set(name, fnPath.node);
-          }
-        }
 
         args.forEach((arg: any, index: number) => {
           if (!arg || arg.type === "SpreadElement") return;
@@ -1147,7 +1184,7 @@ export function transformFile(
             arg,
             filePath,
             fileStrings,
-            "call",
+            "jsx-expression", // object-literal leaves; byText still matches
             { useI18nInstance: useI18n, byText },
           );
           if (count > 0) {

@@ -212,6 +212,23 @@ export const SUPPORTED_LOCALES = [
  */
 export type LanguageCode = (typeof SUPPORTED_LOCALES)[number];
 
+export type CustomDetectCallMode = "strings" | "object";
+
+export interface CustomDetectCall {
+  /** Callee id, same style as today: "setError" or "Toast.show" */
+  callee: string;
+  /**
+   * strings — extract string/template positional args
+   * object  — walk ObjectExpression args (and nested expr) with key allowlist
+   */
+  args: CustomDetectCallMode;
+  /**
+   * Optional. Only for args: "object".
+   * If omitted, use config.objectLiteralIncludeKeys.
+   */
+  keys?: string[];
+}
+
 /**
  * Full configuration for @autoi18n/expo.
  *
@@ -325,19 +342,13 @@ export interface EaiConfig {
   detectThrows: boolean;
 
   /**
-   * Additional function call patterns to extract string arguments from.
-   *
-   * Use this for toast libraries, custom error handlers, snackbars, or
-   * any function that receives user-visible strings as arguments.
-   *
-   * Format:
-   * - `'functionName'` for top-level functions: `showMessage('Hello')`
-   * - `'object.method'` for method calls: `toast.show('Saved')`
-   *
-   * @default []
-   * @example ['toast.show', 'setError', 'showMessage', 'Snackbar.show']
+   * @example
+   * customDetectCalls: [
+   *   { callee: "setError", args: "strings" },
+   *   { callee: "Toast.show", args: "object", keys: ["text1", "text2", "text3"] },
+   * ]
    */
-  customDetectCalls: string[];
+  customDetectCalls: CustomDetectCall[];
 
   /**
    * Whether to extract strings from state setter calls matching the

@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import { readFileSafe } from "../utils/fs";
 import { logger } from "../utils/logger";
-import type { EaiConfig } from "../types/config";
+import type { CustomDetectCall, EaiConfig } from "../types/config";
 import {
   DEFAULT_SINGLE_WORD_BLOCKLIST,
   DEFAULT_UI_SINGLE_WORDS,
@@ -19,6 +19,10 @@ import {
   RN_STYLE_KEYS,
   TRANSLATABLE_PROP_NAMES,
 } from "../constants/scan-sets";
+import {
+  paramNameFromExpression,
+  templateHasOnlySimpleExpressions,
+} from "../utils/templates";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -244,7 +248,7 @@ function buildFullKey(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Whitespace normalization
+// normalization
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -274,6 +278,33 @@ export function normalizeJSXWhitespace(value: string): string {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .join(" ");
+}
+
+export function normalizeCustomDetectCalls(input: unknown): CustomDetectCall[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => {
+      if (typeof item === "string") {
+        return { callee: item, args: "strings" as const };
+      }
+      if (
+        item &&
+        typeof item === "object" &&
+        typeof (item as any).callee === "string"
+      ) {
+        const args = (item as any).args === "object" ? "object" : "strings";
+        const keys = Array.isArray((item as any).keys)
+          ? (item as any).keys.filter((k: unknown) => typeof k === "string")
+          : undefined;
+        return {
+          callee: (item as any).callee as string,
+          args,
+          ...(keys?.length ? { keys } : {}),
+        };
+      }
+      return null;
+    })
+    .filter(Boolean) as CustomDetectCall[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -372,13 +403,6 @@ function isLikelyUiCopy(value: string, config?: EaiConfig): boolean {
   return true;
 }
 
-/** true if every interpolation is a simple identifier: ${name} */
-function templateHasOnlyIdentifierExpressions(
-  node: t.TemplateLiteral,
-): boolean {
-  return node.expressions.every((expr) => t.isIdentifier(expr));
-}
-
 /**
  * Heuristic to detect NativeWind/Tailwind className strings.
  *
@@ -450,25 +474,18 @@ function processTemplateLiteral(node: t.TemplateLiteral): {
 } {
   let text = "";
   const params: string[] = [];
-  let argIndex = 0;
+  const used = new Map<string, number>();
 
   node.quasis.forEach((quasi, i) => {
-    text += quasi.value.cooked ?? quasi.value.raw;
-
+    text += quasi.value.cooked ?? quasi.value.raw ?? "";
     if (i < node.expressions.length) {
-      const expr = node.expressions[i];
-      let paramName: string;
-
-      if (t.isIdentifier(expr)) {
-        paramName = expr.name;
-      } else if (t.isMemberExpression(expr) && t.isIdentifier(expr.property)) {
-        paramName = expr.property.name;
-      } else {
-        paramName = `arg${argIndex++}`;
-      }
-
-      params.push(paramName);
-      text += `{{${paramName}}}`;
+      const e = node.expressions[i] as t.Expression;
+      let name = paramNameFromExpression(e);
+      const n = (used.get(name) ?? 0) + 1;
+      used.set(name, n);
+      if (n > 1) name = `${name}${n}`;
+      params.push(name);
+      text += `{{${name}}}`;
     }
   });
 
@@ -536,10 +553,10 @@ function extractFromExpression(
 
   // ── Template literal ───────────────────────────────────────────────────────
   if (t.isTemplateLiteral(expr)) {
-    if (templateHasOnlyIdentifierExpressions(expr)) {
+    if (templateHasOnlySimpleExpressions(expr)) {
       const { text, params } = processTemplateLiteral(expr);
-      if (!isExtractable(text, config, { relaxSingleWordRules })) return;
-
+      if (!passes(text)) return;
+      
       const builtKey = buildFullKey(namespace, text, maxKeyLen);
       if (!builtKey) return;
       const { key, fullKey } = builtKey;
@@ -879,6 +896,80 @@ function extractStringArgs(
   }
 }
 
+function extractFromCallObjectArg(
+  expr: t.Expression,
+  results: ExtractedString[],
+  namespace: string,
+  filePath: string,
+  maxKeyLen: number,
+  keyAllow: string[] | readonly string[],
+  config: EaiConfig,
+): void {
+  // Toast.show(cond ? { text1: "a" } : { text1: "b" })
+  if (t.isConditionalExpression(expr)) {
+    extractFromCallObjectArg(
+      expr.consequent,
+      results,
+      namespace,
+      filePath,
+      maxKeyLen,
+      keyAllow,
+      config,
+    );
+    extractFromCallObjectArg(
+      expr.alternate,
+      results,
+      namespace,
+      filePath,
+      maxKeyLen,
+      keyAllow,
+      config,
+    );
+    return;
+  }
+
+  if (!t.isObjectExpression(expr)) {
+    // rare: Toast.show(msg) as string — optional
+    extractFromExpression(
+      expr,
+      results,
+      namespace,
+      filePath,
+      maxKeyLen,
+      "call",
+      false,
+      config,
+    );
+    return;
+  }
+
+  const allow = new Set(keyAllow.map((k) => k.toLowerCase()));
+
+  for (const prop of expr.properties) {
+    if (!t.isObjectProperty(prop) && !t.isProperty(prop)) continue;
+    if (prop.computed) continue;
+
+    const key = prop.key;
+    const propName = t.isIdentifier(key)
+      ? key.name
+      : t.isStringLiteral(key)
+        ? key.value
+        : null;
+    if (!propName || !allow.has(propName.toLowerCase())) continue;
+
+    extractFromExpression(
+      prop.value as t.Expression,
+      results,
+      namespace,
+      filePath,
+      maxKeyLen,
+      "call",
+      true, // relaxSingleWordRules for UI copy on allowlisted keys
+      config,
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // File-level extractor
 // ─────────────────────────────────────────────────────────────────────────────
@@ -945,7 +1036,18 @@ export function extractStringsFromFile(
 
   const results: ExtractedString[] = [];
   const maxKeyLen = config.maxKeyLength;
-  const customCallPatterns = new Set(config.customDetectCalls);
+
+  const stringCallees = new Set<string>();
+  const objectCallees = new Map<string, string[] | null>();
+  // null keys → use config.objectLiteralIncludeKeys
+
+  for (const entry of normalizeCustomDetectCalls(config.customDetectCalls)) {
+    if (entry.args === "strings") {
+      stringCallees.add(entry.callee);
+    } else {
+      objectCallees.set(entry.callee, entry.keys ?? null);
+    }
+  }
 
   traverse(ast, {
     // ── 1. Plain JSX text ────────────────────────────────────────────────────
@@ -1152,8 +1254,8 @@ export function extractStringsFromFile(
         return;
       }
 
-      // ── customDetectCalls ───────────────────────────────────────────────────
-      if (customCallPatterns.has(calleeName)) {
+      // Mode: strings
+      if (stringCallees.has(calleeName)) {
         extractStringArgs(
           nodePath.node.arguments,
           results,
@@ -1161,9 +1263,28 @@ export function extractStringsFromFile(
           filePath,
           maxKeyLen,
           "call",
-          config,
+          config, // if you thread config
         );
         return;
+      }
+
+      // Mode: object
+      if (objectCallees.has(calleeName)) {
+        const keyAllow =
+          objectCallees.get(calleeName) ?? config.objectLiteralIncludeKeys;
+
+        for (const arg of nodePath.node.arguments) {
+          if (!arg || arg.type === "SpreadElement") continue;
+          extractFromCallObjectArg(
+            arg as t.Expression,
+            results,
+            namespace,
+            filePath,
+            maxKeyLen,
+            keyAllow,
+            config,
+          );
+        }
       }
 
       // ── useState-style setters ────────────────────────────────────────────
