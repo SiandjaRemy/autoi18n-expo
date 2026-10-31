@@ -8,7 +8,8 @@ Automatic i18n scaffolding and code transformation for **Expo** and **React Nati
 
 <div align="center">
 
-[![npm version](https://img.shields.io/npm/v/@autoi18n/expo?color=blue&label=npm&style=flat-square)](https://www.npmjs.com/package/@autoi18n/expo) [![downloads](https://img.shields.io/npm/dm/@autoi18n/expo?color=green&style=flat-square)](https://www.npmjs.com/package/@autoi18n/expo) [![stars](https://img.shields.io/github/stars/SiandjaRemy/autoi18n-expo?style=flat-square&color=yellow)](https://github.com/SiandjaRemy/autoi18n-expo) [![license](https://img.shields.io/npm/l/@autoi18n/expo?color=lightgrey&style=flat-square)](./LICENSE) 
+[![npm version](https://img.shields.io/npm/v/@autoi18n/expo?color=blue&label=npm&style=flat-square)](https://www.npmjs.com/package/@autoi18n/expo) [![downloads](https://img.shields.io/npm/dm/@autoi18n/expo?color=green&style=flat-square)](https://www.npmjs.com/package/@autoi18n/expo) [![stars](https://img.shields.io/github/stars/SiandjaRemy/autoi18n-expo?style=flat-square&color=yellow)](https://github.com/SiandjaRemy/autoi18n-expo) [![license](https://img.shields.io/npm/l/@autoi18n/expo?color=lightgrey&style=flat-square)](./LICENSE)
+
 </div>
 
 </div>
@@ -23,536 +24,634 @@ It does **not** handle translation (yet). It prepares the structure, the keys, a
 
 ---
 
-## Table of contents
-
 - [How it works](#how-it-works)
-- [Requirements](#requirements)
-- [Install](#install)
+- [Scope](#scope)
 - [Quick start](#quick-start)
+- [Installation](#installation)
 - [Commands](#commands)
-  - [`eai init`](#eai-init)
-  - [`eai scan`](#eai-scan)
-  - [`eai replace`](#eai-replace)
-  - [`eai revert`](#eai-revert)
-  - [`eai locales-generate`](#eai-locales-generate)
-  - [`eai locales-sync`](#eai-locales-sync)
-  - [`eai locales-delete`](#eai-locales-delete)
 - [Configuration](#configuration)
-- [Locale layout](#locale-layout)
-- [Global flags](#global-flags)
-- [Known limitations](#known-limitations)
+- [What gets detected](#what-gets-detected)
+- [What `replace` does to your code](#what-replace-does-to-your-code)
+- [Keys and locale files](#keys-and-locale-files)
+- [Working with several languages](#working-with-several-languages)
+- [Examples](#examples)
+- [Limitations](#limitations)
 - [Troubleshooting](#troubleshooting)
 - [Roadmap](#roadmap)
-- [License](#license)
 
 ---
 
 ## How it works
 
-```text
-eai init              → config + i18n.ts scaffold
-        ↓
-eai scan              → default locale JSON (e.g. en) + wire i18n import
-        ↓
-You                   → install peers (if needed), import i18n in entry, commit
-        ↓
-eai replace           → t() / i18n.t() in source (+ .i18nbak backups)
-        ↓
-You                   → verify the app
-        ↓
-eai revert --clean    → drop backups → commit
-   or eai revert      → undo source changes
-        ↓
-eai locales-generate  → target language files (fr, es, …) + wire i18n
-        ↓
-You                   → translate values
-        ↓
-(as the app evolves)
-eai scan              → new keys → default locale (merge)
-eai locales-sync      → same keys → targets with [UNTRANSLATED] prefix
-eai replace           → any remaining hard-coded strings
+```
+ your source ──► eai scan ──► locale JSON (default language)
+                                   │
+                                   ├──► eai replace ──► source rewritten to t("...") / i18n.t("...")
+                                   │                    (per-file .i18nbak backups, preview first)
+                                   │
+                                   └──► eai locales-generate ──► fr/translation.json, es/translation.json, ...
+                                        eai locales-sync     ──► keep targets aligned with the default
 ```
 
----
+1. **`scan`** parses your files with Babel, extracts user-facing strings, and writes them to the default-language locale file.
+2. **`replace`** re-scans to find exact source positions, rewrites the literals in memory, shows you a preview, asks for confirmation, creates backups, then writes the files.
+3. **`locales-*`** commands create and maintain files for your other languages and wire them into `i18n.ts` without overwriting your custom code.
 
-## Requirements
+The package does not claim 100% coverage of every string shape in a large app. It handles the common patterns well and tells you about the rest. See [Limitations](#limitations).
 
-- **Node.js** 18+
-- An **Expo** or **React Native** project
-- **i18next** ≥ 23
-- **react-i18next** ≥ 14
+## Scope
 
----
+`@autoi18n/expo` targets **Expo and React Native** only. Web frameworks such as Next.js and Vite are out of scope for this package. Separate packages may follow.
 
-## Install
-
-> **Install `i18next` and `react-i18next` first (or at the same time).**
-> They are peer dependencies and must live in your app, not only inside this package.
-
-```bash
-# npm
-npm install i18next react-i18next
-npm install -D @autoi18n/expo
-
-# yarn
-yarn add i18next react-i18next
-yarn add -D @autoi18n/expo
-
-# pnpm
-pnpm add i18next react-i18next
-pnpm add -D @autoi18n/expo
-
-# bun
-bun add i18next react-i18next
-bun add -d @autoi18n/expo
-```
-
-**Why peers?** Your app and the runtime must share a single `i18next` instance. Bundling a second copy inside the CLI can cause duplicate instances, language changes that don't apply, and context bugs. Peers tell every package manager to use the app's install.
-
-Works with **npm**, **yarn**, **pnpm**, and **bun**.
-
-You can also install the CLI globally (`npm install -g @autoi18n/expo`) — but peers still belong in the project.
+Right-to-left (RTL) _layout_ mirroring is not handled. RTL languages work as translation content; use React Native's `I18nManager` or your own app-level handling for layout.
 
 ---
 
 ## Quick start
 
-### 1. Initialize
-
 ```bash
+# 1. Install the CLI and the i18n runtime
+npm install --save-dev @autoi18n/expo
+npm install i18next react-i18next
+
+# 2. Create the config and an initial i18n.ts
 npx eai init
-```
 
-Detects your project layout and generates:
-
-- `eai.config.ts` — typed config with IntelliSense
-- `i18n.ts` (often `src/i18n.ts`) — i18next bootstrap with empty resources until `scan`
-
-Review the config; confirm `defaultLanguage` matches the language of your current UI copy.
-
-> Existing files are **not overwritten** unless you pass `--force`.
-
-### 2. Scan
-
-```bash
+# 3. Extract strings into the default-language locale file
 npx eai scan
+
+# 4. Rewrite your source to use t() / i18n.t()   (preview + confirmation + backups)
+npx eai replace
+
+# 5. Generate files for your other languages (set targetLanguages in eai.config.ts first)
+npx eai locales-generate
 ```
 
-Scans `.ts` / `.tsx` / `.js` / `.jsx`, extracts translatable strings, writes the default-language locale file, shows a preview by namespace, and asks for confirmation. Updates `i18n.ts` to import that locale.
-
-### 3. Wire the app
-
-```bash
-npx expo install i18next react-i18next   # if not already installed
-```
-
-Import `i18n` as early as possible in the entry (before screens that call `t`):
+Then make sure `i18n.ts` runs once at startup. With Expo Router, import it at the top of your root layout:
 
 ```tsx
-// app/_layout.tsx or App.tsx — first import
-import "../src/i18n"; // use the path printed by init/scan
-// the path suggested for the import might be incorrect
-// always crosscheck
+// src/app/_layout.tsx
+import "@/i18n";
 ```
 
-**Commit before `replace`.**
+Translate the generated files (see [Working with several languages](#working-with-several-languages)) and you're done.
 
-### 4. Replace
+> Tip: run `npx eai scan --only src/screens/auth` first to try the tool on a single folder before touching the whole app.
+
+---
+
+## Installation
 
 ```bash
-npx eai replace
+npm install --save-dev @autoi18n/expo
+npm install i18next react-i18next
 ```
 
-Rewrites matched strings to `t()` / `i18n.t()`. Creates `.i18nbak` backups before writing.
-
-### 5. Verify
-
-```bash
-npx expo start
-
-# Something wrong → restore sources
-npx eai revert
-
-# Looks good → remove backups only
-npx eai revert --clean
-git add .
-git commit -m "feat: add i18n"
-```
-
-### 6. Other languages
-
-```bash
-npx eai locales-generate --only fr,es,ar
-# or set targetLanguages in eai.config.ts and run without --only
-```
-
-Creates target locale files from the default catalog (same keys; values start as default-language text). Imports are wired into `i18n.ts` by default (`--no-imports` to skip). Translate the values in each file.
-
-### 7. Keep in sync (ongoing)
-
-Whenever you add new UI strings:
-
-```bash
-npx eai scan           # merge new keys into the default locale
-npx eai locales-sync   # add missing keys to fr/es/… with [UNTRANSLATED] prefix
-npx eai replace        # rewrite any new hard-coded literals still in source
-```
-
-Then search locale files for `[UNTRANSLATED]` (or your `unsyncedPrefix`) and translate those values.
-
-> **Order tip:** `scan` updates the default language; `locales-sync` only copies keys that already exist in the default file. Run `scan` **before** `locales-sync`. Run `replace` when source still contains raw strings for those keys.
+- **Install `i18next` and `react-i18next` in your app.** They are peer dependencies, and installing them yourself avoids duplicate peer-resolution problems.
+- The CLI binary is `eai`. Run it with `npx eai <command>` or from an npm script.
 
 ---
 
 ## Commands
 
+| Command                                         | What it does                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| [`eai init`](#eai-init)                         | Create the config file and an initial `i18n.ts`.                               |
+| [`eai scan`](#eai-scan)                         | Scan the AST and write keys to the default-language locale. Merges by default. |
+| [`eai replace`](#eai-replace)                   | Rewrite extracted literals to `t()` / `i18n.t()`, with preview and backups.    |
+| [`eai revert`](#eai-revert)                     | Restore files from their `.i18nbak` backups.                                   |
+| [`eai locales-generate`](#eai-locales-generate) | Create target-language locale files from the default one.                      |
+| [`eai locales-sync`](#eai-locales-sync)         | Add and remove keys on target locales so they match the default.               |
+| [`eai locales-delete`](#eai-locales-delete)     | Delete locale files and clean `i18n.ts`.                                       |
+
 ### `eai init`
 
-```bash
-eai init
-eai init --path ./my-app
-eai init --force    # overwrite existing setup files
-```
+Creates `eai.config.ts` and an initial `i18n.ts`.
 
-**Detection (Expo-focused):**
-
-| Detection              | Effect                              |
-| ---------------------- | ----------------------------------- |
-| `src/` exists          | Prefer `src/locales`, `src/i18n.ts` |
-| `app/` exists          | Influences suggested paths          |
-| `expo` in dependencies | Treated as Expo project             |
-
-**Safe by default:** skips files that already exist.
-
----
+- Existing files are respected and not overwritten.
+- `--force` overwrites existing files.
 
 ### `eai scan`
 
-```bash
-eai scan
-eai scan --dry-run
-eai scan --fresh
-```
+Parses your source and writes the default-language locale file (`<localesDir>/<defaultLanguage>/<localeFileName>.json`, or `<localesDir>/<defaultLanguage>.json` when `localeFileName` is `null`).
 
-**Merge (default)** when the locale file already exists:
+| Flag                      | Behavior                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| _(none)_                  | **Merge mode (default).** Adds newly found keys and keeps existing translations.   |
+| `--fresh`                 | Rebuilds the locale from this scan. Keys no longer found in code can be removed.   |
+| `--only <folder-or-glob>` | Limits the scan, for example `--only src/screens` or `--only "src/utils/**/*.ts"`. |
 
-| Situation                          | Behavior                       |
-| ---------------------------------- | ------------------------------ |
-| New key from scan                  | Added (value = source text)    |
-| Existing key                       | Value kept (manual edits safe) |
-| Key only in file, not in this scan | Kept (not deleted)             |
+`--fresh` cannot be combined with `--only`, because a partial scan would delete keys that live outside the scanned paths.
 
-`--fresh` → Locale rebuilt from this scan only; keys not found are removed.
+**Rescan feedback.** When the locale already exists and you're in merge mode, the CLI reports how many keys are **new** and how many were **already present**. If nothing is new, it skips a pointless "refresh" confirmation. If hardcoded strings remain, it points you to `eai replace`.
 
-> Use `--fresh` for intentional cleanup only. After a full `replace`, most copy is no longer in source as literals — `--fresh` would wipe most of the default catalog.
+**After `replace`**, a new scan may still list literals. That is expected until those places are rewritten or intentionally excluded (see [Limitations](#limitations)).
 
-Also wires the default language into `i18n.ts`.
-
-**What gets detected**
-
-| Source                      | Example                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------- |
-| JSX text                    | `<Text>Hello world</Text>`                                                                        |
-| JSX string expressions      | `<Text>{"Hello"}</Text>`                                                                          |
-| Template literals (simple)  | <code>&lt;Text&gt;{`Hello ${name}`}&lt;/Text&gt;</code>                                           |
-| Ternaries / logicals in JSX | `{loading ? "Wait" : "Go"}`, `{flag && "Visible"}`                                                |
-| Allowlisted JSX props       | `<Button title="Submit" />`, `accessibilityLabel`, `actionLabel`, …                               |
-| `Alert.alert`               | Title, message, button text (incl. ternaries)                                                     |
-| Throws                      | `throw new Error('Failed to save')`                                                               |
-| Helper return strings       | With stricter UI heuristics                                                                       |
-| State setters               | via detectStateSetters (true by default) `setError('…')`, `setMessage('…')` (`set*` + string arg) |
-| Custom calls                | `customDetectCalls`, e.g. `toast.show`                                                            |
-
-**What is ignored**
-
-- className
-- Non-UI props (`testID`, `name`, `type`, `color`, …)
-- Pure numbers, URLs, single characters, code-like identifiers
-- Runtime / server data (`data.message`, `tx.description`)
-- Fully dynamic concatenation / index access (see [limitations](#known-limitations))
-
-Respects hard excludes (`node_modules`, `android`, `ios`, `.expo`, …), `config.exclude`, and `.gitignore`.
-
----
+Files are discovered with `fast-glob` and filtered through built-in excludes (`node_modules`, `dist`, `build`, `android`, `ios`, `.expo`, `.git`, root config files), your `.gitignore`, and `exclude` in your config.
 
 ### `eai replace`
 
-```bash
-eai replace
-eai replace --dry-run
-```
+Rewrites your source files so literals become translation calls.
 
-Requires a prior successful `scan` (default locale file must exist).
+1. Re-scans to find the current source positions.
+2. Transforms files **in memory**.
+3. Shows a **preview**.
+4. Asks for **confirmation**.
+5. Creates **backups**.
+6. Writes the files.
 
-**Strategy**
-
-| Location                                       | Rewrite                                              |
-| ---------------------------------------------- | ---------------------------------------------------- |
-| React component (PascalCase / default export)  | `t('…')` + `useTranslation()`                        |
-| Non-exported local JSX helper in the same file | `t('…')` + `t: TFunction`; same-file calls → `fn(t)` |
-| Exported helpers, pure utils, API throws       | `i18n.t('…')` + `import i18n` (call sites unchanged) |
-
-**Examples**
-
-```tsx
-// Before
-<Text>Hello world</Text>
-<Text>{`Welcome ${firstName}`}</Text>
-Alert.alert("Delete", "Are you sure?");
-throw new Error("Failed to save");
-
-// After (in a component)
-<Text>{t("home.hello_world")}</Text>
-<Text>{t("home.welcome", { firstName })}</Text>
-Alert.alert(t("home.delete"), t("home.are_you_sure"));
-
-// After (module / exported util)
-throw new Error(i18n.t("api.failed_to_save"));
-```
-
-```tsx
-// Local non-exported helper
-function getDevMenuHint(t: TFunction) {
-  return <Text>{t("index.use_browser_devtools")}</Text>;
-}
-// same file: getDevMenuHint(t)
-```
-
-**Backups:** `.i18nbak` next to each modified file. Existing backups are **not overwritten** (first pre-replace snapshot wins).
-
-> Prefer one successful `replace` path. If you need to re-run, `eai revert` first. Replacing already-replaced files is not guaranteed to be idempotent.
-
----
+If the scan finds strings but replace applies **0** transformations, the CLI says so. That points to a mismatch between scan and replace (a visitor gap), not to a silent success. See [Troubleshooting](#troubleshooting).
 
 ### `eai revert`
 
-```bash
-eai revert           # restore sources from .i18nbak, delete backups
-eai revert --clean   # delete backups only (after you verified)
-```
+Restores every file that has an `.i18nbak` backup.
 
-Add to `.gitignore`:
-
-```gitignore
-*.i18nbak
-```
-
----
+- `eai revert --clean` removes the `.i18nbak` files instead of restoring them (use it once you're happy with the result).
 
 ### `eai locales-generate`
 
-Bootstrap non-default languages from the default locale.
+Creates locale files for the languages in `targetLanguages`, starting from the default locale.
 
-```bash
-eai locales-generate
-eai locales-generate --only fr
-eai locales-generate --only fr,es,ar
-eai locales-generate --only fr --force
-eai locales-generate --only fr --no-imports
-eai locales-generate --only fr --dry-run
-```
+| Flag             | Behavior                                                      |
+| ---------------- | ------------------------------------------------------------- |
+| `--only <langs>` | Comma-separated codes (overrides / filters `targetLanguages`) |
+| `--force`        | Overwrite target files instead of merge                       |
+| `--yes`          | Skip confirmation                                             |
+| `--dry-run`      | Preview only                                                  |
+| `--no-imports`   | Do not wire `i18n.ts`                                         |
 
-| Flag             | Description                                                |
-| ---------------- | ---------------------------------------------------------- |
-| `--only <langs>` | Comma-separated codes (or use `targetLanguages` in config) |
-| `--force`        | Overwrite existing target files entirely                   |
-| `--yes`          | Skip confirmation with `--force`                           |
-| `--no-imports`   | Do not update `i18n.ts` (default is to wire imports)       |
-| `--dry-run`      | Preview only                                               |
+- Existing target files are **merged**: missing keys are added, existing translations are left alone.
+- New files start as a copy of the default language, which makes them easy to hand to a translator or an LLM.
+- Imports and `resources` entries are **wired into `i18n.ts` by default**. Use `--no-imports` to skip that.
 
-- Never regenerates the default language (owned by `scan`)
-- Existing targets: add missing keys only (unless `--force`)
-- New values = default-language text until you translate
-
----
+<!-- confirm: do --only, --force, --yes and --dry-run exist on locales-generate? If so, document them here. -->
 
 ### `eai locales-sync`
 
-Run **after** `eai scan` when target locales already exist and the default catalog gained keys.
+Aligns target locales with the default locale.
 
-```bash
-eai locales-sync
-eai locales-sync --only fr,es
-eai locales-sync --dry-run
-```
-
-| Change                            | Behavior                                 |
-| --------------------------------- | ---------------------------------------- |
-| Key in default, missing in target | Added as `unsyncedPrefix + defaultValue` |
-| Key in target, not in default     | Reported in CLI output; not deleted      |
-| Key already in target             | Untouched (translations preserved)       |
-
-Default `unsyncedPrefix`: `[UNTRANSLATED]`
-
-```json
-{
-  "home.welcome_back": "Bienvenue",
-  "home.new_feature": "[UNTRANSLATED]New feature added",
-  "home.loading": "Chargement..."
-}
-```
-
-Find pending work with project search for `[UNTRANSLATED]` (or your prefix). When translating, replace the **entire value** with the final text (drop the prefix).
-
-**`locales-generate` vs `locales-sync`**
-
-|              | `locales-generate`       | `locales-sync`                 |
-| ------------ | ------------------------ | ------------------------------ |
-| Main use     | First-time target files  | Ongoing alignment              |
-| Missing keys | Default text (bootstrap) | Prefixed with `unsyncedPrefix` |
-| `i18n.ts`    | Wired by default         | Usually unchanged              |
-
----
+- Adds keys that exist in the default language but not in the target.
+- Removes keys that no longer exist in the default language.
+- New values are marked with `unsyncedPrefix` (for example `[UNTRANSLATED] Save`) so you can find what still needs translating.
 
 ### `eai locales-delete`
 
-```bash
-eai locales-delete --only fr,es
-eai locales-delete
-```
+Deletes locale files and surgically removes their entries from `i18n.ts`.
 
-Removes non-default locale files and cleans `i18n.ts`. **Never deletes the default language.**
+- The **default language cannot be deleted** with this command.
+
+
 
 ---
 
 ## Configuration
 
+`eai init` creates `eai.config.ts`. Everything is optional except where you want to change a default.
+
 ```ts
 // eai.config.ts
-import { defineEaiConfig } from "@autoi18n/expo";
+import { defineEaiConfig } from "@autoi18n/expo"; 
 
 export default defineEaiConfig({
+  // ── Languages ─────────────────────────────────────────────
   defaultLanguage: "en",
+  targetLanguages: ["fr", "es"],
+
+  // ── Files ─────────────────────────────────────────────────
   localesDir: "src/locales",
-  localeFileName: null,
-  maxKeyLength: 60,
+  localeFileName: "translation", // → src/locales/en/translation.json
+  i18nFilePath: "src/i18n.ts",
+
+  // ── Detection ─────────────────────────────────────────────
   detectAlerts: true,
   detectThrows: true,
   detectStateSetters: true,
-  customDetectCalls: [],
-  exclude: [],
-  targetLanguages: ["fr", "es"],
-  i18nFilePath: "src/i18n.ts",
+  detectObjectLiterals: true,
+  objectLiteralIncludeKeys: ["label", "title", "details"],
+  customDetectCalls: [
+    { callee: "setError", args: "strings" },
+    { callee: "Toast.show", args: "object", keys: ["text1", "text2", "text3"] },
+  ],
+
+  // ── Scanner ───────────────────────────────────────────────
+  exclude: ["src/mocks/**", "src/fixtures/**"],
+  maxKeyLength: 60,
+
+  // ── Sync ──────────────────────────────────────────────────
   unsyncedPrefix: "[UNTRANSLATED]",
 });
 ```
 
-| Field                | Default                       | Description                                                 |
-| -------------------- | ----------------------------- | ----------------------------------------------------------- |
-| `defaultLanguage`    | `'en'`                        | ISO 639-1 (or regional) code of current UI copy             |
-| `localesDir`         | `'locales'` / `'src/locales'` | Locale output directory                                     |
-| `localeFileName`     | `null`                        | `null` → `en.json`; `'translation'` → `en/translation.json` |
-| `maxKeyLength`       | `60`                          | Max key length (trim at word boundary)                      |
-| `detectAlerts`       | `true`                        | `Alert.alert` title, message, buttons                       |
-| `detectThrows`       | `true`                        | `throw new Error('…')`                                      |
-| `detectStateSetters` | `true`                        | `setError('…')`-style setters                               |
-| `customDetectCalls`  | `[]`                          | e.g. `['toast.show']`                                       |
-| `exclude`            | `[]`                          | Extra ignore globs                                          |
-| `targetLanguages`    | `[]`                          | Defaults for `generate` / `sync` / `delete`                 |
-| `i18nFilePath`       | `'src/i18n.ts'`               | i18n bootstrap path                                         |
-| `unsyncedPrefix`     | `'[UNTRANSLATED]'`            | Prefix for new values from `locales-sync`                   |
+### Options
+
+Values marked † are not documented in the original config comments; please verify them against your `defineEaiConfig` defaults.
+
+| Option                                  | Type                   | Default              | Description                                                                                                                                |
+| --------------------------------------- | ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `defaultLanguage`                       | `string`               | `"en"`               | The language your app is written in. Must be an ISO 639-1 code. Owned by `eai scan`.                                                       |
+| `targetLanguages`                       | `string[]`             | `[]`                 | Languages generated by `eai locales-generate`.                                                                                             |
+| `localesDir`                            | `string`               | `"src/locales"`      | Where locale files go. Created if missing (its parent must exist).                                                                         |
+| `localeFileName`                        | `string \| null`       | `null` †             | `null` → `<localesDir>/en.json`. A name such as `"translation"` → `<localesDir>/en/translation.json`.                                      |
+| `i18nFilePath`                          | `string`               | `"src/i18n.ts"`      | Your i18n setup file. Used by `replace` (to compute imports) and by the `locales-*` commands (to wire imports).                            |
+| `maxKeyLength`                          | `number`               | `60`                 | Maximum generated key length (10–200). Long keys are trimmed at word boundaries.                                                           |
+| `detectAlerts`                          | `boolean`              | `true`               | Extract `Alert.alert` titles, messages and button text.                                                                                    |
+| `detectThrows`                          | `boolean`              | `true`               | Extract `throw new Error("...")` messages.                                                                                                 |
+| `detectStateSetters`                    | `boolean`              | `true`               | Extract the first argument of `setX("...")` calls such as `setError("...")`.                                                               |
+| `detectObjectLiterals`                  | `boolean`              | †                    | Extract strings from plain object and array literals (see [below](#object-literals)).                                                      |
+| `objectLiteralIncludeKeys`              | `string[]`             | †                    | If set, **only** these object keys are extracted (allowlist). Also relaxes the single-word filter for those keys.                          |
+| `objectLiteralExcludeKeys`              | `string[]`             | `[]` †               | Extra object keys to skip, on top of the built-in ones.                                                                                    |
+| `additionalTranslatablePropNames`       | `string[]`             | `[]` †               | Extra JSX prop names to treat as user-facing, on top of the built-ins.                                                                     |
+| `customDetectCalls`                     | `(string \| object)[]` | `[]`                 | Extra call patterns to extract from (see [below](#customdetectcalls)).                                                                     |
+| `skipSnakeCase` / `skipCamelCase`       | `boolean`              | `true` †             | Skip single tokens that look like identifiers (`cash_in`, `myValue`).                                                                      |
+| `allowSingleWords` / `blockSingleWords` | `string[]`             | `[]` †               | Allow or block specific single-word strings on top of the built-in lists.                                                                  |
+| `exclude`                               | `string[]`             | `[]`                 | Extra glob patterns to skip. `node_modules`, `dist`, `build`, `android`, `ios`, `.expo`, `.git` and your `.gitignore` are always excluded. |
+| `unsyncedPrefix`                        | `string`               | `"[UNTRANSLATED]"` † | Prefix applied by `eai locales-sync` to values added to a target locale.                                                                   |
+
+### `customDetectCalls`
+
+Use it for toast libraries and custom error handlers. Each entry says which function to watch and how to read its arguments.
+
+```ts
+customDetectCalls: [
+  // positional string / template arguments
+  { callee: "setError", args: "strings" },
+
+  // object arguments: only the listed keys are extracted
+  { callee: "Toast.show", args: "object", keys: ["text1", "text2", "text3"] },
+];
+```
+
+| `args`      | Meaning                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| `"strings"` | Extract positional string and template-literal arguments.                                                          |
+| `"object"`  | Walk object arguments. Properties are filtered by the entry's `keys`, or by the global `objectLiteralIncludeKeys`. |
+
+A plain string entry still works and means `{ callee, args: "strings" }`.
+
+```ts
+Toast.show({
+  type: "success",
+  text1: "Task saved",
+  text2: "You can find it in Active",
+});
+//                                    ↑ extracted     ↑ extracted
+```
+
+Callee names are `name` or `object.method`.
+
+### Object literals
+
+With `detectObjectLiterals` on, strings in plain objects and arrays are extracted when their **key** is allowed:
+
+```ts
+export const FILTERS = [
+  { id: "all", label: "All" },
+  { id: "done", label: "Done" },
+];
+
+const STATUS_CONFIG = {
+  done: { label: "Completed", details: ["Nice work", "Keep going"] },
+};
+```
+
+- `id` is ignored (it is a built-in excluded key), `label` and `details` are extracted.
+- Nested objects, arrays of strings, and ternaries under allowed keys are all followed.
+- TypeScript wrappers such as `as const` and `satisfies` are handled.
+- React Native style objects (`{ flex: 1, padding: 8 }`) are detected and skipped.
 
 ---
 
-## Locale layout
+## What gets detected
 
-**Flat file** (`localeFileName: null`):
+| Where the text is       | Example                                                                      | Notes                                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| JSX text                | `<Text>Hello world</Text>`                                                   | Multiline text is normalized the way React Native collapses it.                                           |
+| JSX expression children | `<Text>{isLoading ? "Wait" : "Go"}</Text>`<br>`<Text>{ok && "Saved"}</Text>` | Ternaries, `&&`/`\|\|`, and templates.                                                                    |
+| JSX props (allowlisted) | `<Input placeholder="Email" />`                                              | `title`, `placeholder`, `label`, `accessibilityLabel`, … Add more with `additionalTranslatablePropNames`. |
+| Prop objects            | `<Stack.Screen options={{ title: "Profile" }} />`                            | Allowlisted keys inside the object.                                                                       |
+| `Alert.alert`           | `Alert.alert("Delete?", "This cannot be undone", [{ text: "Cancel" }])`      | Title, message, button text, including ternaries.                                                         |
+| `throw`                 | `throw new Error("Failed to save")`                                          | When `detectThrows` is on.                                                                                |
+| State setters           | `setError("Invalid email")`                                                  | When `detectStateSetters` is on.                                                                          |
+| `return`                | `return "Loading"`                                                           | Stricter heuristics: bare returns need to look like UI copy.                                              |
+| Object literals         | `{ label: "All" }`                                                           | When `detectObjectLiterals` is on.                                                                        |
+| Configured calls        | `Toast.show({ text1: "Saved" })`                                             | Via `customDetectCalls`.                                                                                  |
+| Simple templates        | `` `Reactivate "${task.title}"?` ``                                          | See below.                                                                                                |
 
-```text
-src/locales/en.json
+### Simple template literals
+
+A template becomes **one key with `{{placeholders}}`** when every interpolation is either:
+
+- an identifier: `${name}`, or
+- a simple, non-computed member expression: `${task.title}`, `${SCHEDULER_CONFIG.DEFAULT_NOTIF_COUNT}` (the object is an identifier or `this`).
+
+```ts
+`Mark "${task.title}" as done?`;
 ```
 
 ```json
-{
-  "auth.signin.welcome_back": "Welcome back",
-  "home.total_transactions": "Total Transactions"
+"tasks.detail.mark_as_done": "Mark \"{{title}}\" as done?"
+```
+
+The placeholder name is the **property name** (`title`), and the rewritten code passes the **original expression**:
+
+```ts
+t("tasks.detail.mark_as_done", { title: task.title });
+```
+
+Templates with calls, nested ternaries (for example plurals), or other complex expressions are **not** extracted as a single key. Strings nested inside them may still be picked up on their own.
+
+### What is skipped on purpose
+
+URLs, hex colors, numbers and values with units (`16px`, `50%`), CSS/Tailwind class strings, React Native style objects, package paths, `true`/`false`/`null`, single characters, and (by default) identifier-looking tokens such as `snake_case` and `camelCase`. Single-word strings go through a built-in blocklist and allowlist that you can extend.
+
+---
+
+## What `replace` does to your code
+
+The rewrite depends on where the string lives:
+
+| Context                                                                                     | Output                                                                                                          |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Inside a React component                                                                    | `t("key")`, plus `useTranslation()` and its import                                                              |
+| Module level, or exported helpers                                                           | `i18n.t("key")`, plus a default import of your app's i18n instance (relative path resolved from `i18nFilePath`) |
+| Non-exported local helper only called inside the same file                                  | May receive an extra `t: TFunction` parameter (limited, see [Limitations](#limitations))                        |
+| Non-exported helper **only called** in the same file                                        | May receive `t: TFunction` and same-file call sites get `helper(t)`                                             |
+| Helper referenced **as a value** (`action: handleExport`, passed as prop, stored in config) | Always `i18n.t(...)`; signature stays `() => void` — **no** `t` param                                           |
+
+### Before / after
+
+**Component:**
+
+```tsx
+// before
+export default function SignIn() {
+  return <Text>Welcome back</Text>;
+}
+
+// after
+import { useTranslation } from "react-i18next";
+
+export default function SignIn() {
+  const { t } = useTranslation();
+  return <Text>{t("auth.signin.welcome_back")}</Text>;
 }
 ```
 
-**Nested** (`localeFileName: 'translation'`):
+**Alert with an interpolated title:**
 
-```text
-src/locales/en/translation.json
+```tsx
+// before
+Alert.alert("Reactivate task", `Reactivate "${task.title}"?`, [
+  { text: "Cancel", style: "cancel" },
+  { text: "Reactivate", onPress: handleReactivate },
+]);
+
+// after
+Alert.alert(
+  t("tasks.detail.reactivate_task"),
+  t("tasks.detail.reactivate_title", { title: task.title }),
+  [
+    { text: t("tasks.detail.cancel"), style: "cancel" },
+    { text: t("tasks.detail.reactivate"), onPress: handleReactivate },
+  ],
+);
 ```
 
-Keys are `namespace.slug` from path + text. For flat dotted keys, `i18n.init` should use:
+**Module-level data:**
 
 ```ts
-keySeparator: false,
-nsSeparator: false,
+// before
+export const FILTERS = [{ id: "all", label: "All" }];
+
+// after
+import i18n from "../i18n";
+
+export const FILTERS = [{ id: "all", label: i18n.t("constants.filters.all") }];
 ```
 
-so lookups don't treat `.` as object nesting (otherwise the UI may show keys instead of values). The generated `i18n.ts` should include this.
+`replace` also handles ternaries and logical expressions, nested objects and arrays, `Alert` arguments and button text, call arguments (for example `QuickActions.setItems([{ title, subtitle }])` or `Toast.show({ text1 })`), and inline `[...].map(...)` data. JSX spacing around text is preserved, and imports for `useTranslation`, `i18n`, and `TFunction` are de-duplicated.
+
+### `i18n.ts` is edited surgically
+
+Adding or deleting a locale **injects or removes only the import and the `resources` entry**. Your own code in `i18n.ts` (a `languageChanged` handler, `expo-localization` detection, plugins) is preserved. The file is regenerated in full only when it doesn't exist, or when `eai init` creates it.
+
+A typical file:
+
+```ts
+import i18n from "i18next";
+import { initReactI18next } from "react-i18next";
+import en from "./locales/en/translation.json";
+import fr from "./locales/fr/translation.json";
+
+i18n.use(initReactI18next).init({
+  resources: {
+    en: { translation: en },
+    fr: { translation: fr },
+  },
+  lng: "en",
+  fallbackLng: "en",
+  interpolation: { escapeValue: false },
+});
+
+export default i18n;
+```
+
+### Backups
+
+- Every modified file gets a sidecar backup: `Component.tsx.i18nbak`.
+- An existing backup is **never overwritten**. The first pre-replace snapshot wins, so running `replace` repeatedly can't destroy your original.
+- `eai revert` restores; `eai revert --clean` deletes the backups.
+- Consider adding `*.i18nbak` to your `.gitignore`.
 
 ---
 
-## Global flags
+## Keys and locale files
+
+### Key format
+
+```
+<namespace>.<text-slug>
+```
+
+- The **namespace** comes from the file path, relative to the app root. A leading `src/`, `app/` and `screens/` are dropped, each segment is lowercased, non-alphanumeric characters become `_`, and Expo Router route groups lose their parentheses.
+
+  | File                           | Namespace              |
+  | ------------------------------ | ---------------------- |
+  | `src/screens/auth/SignIn.tsx`  | `auth.signin`          |
+  | `src/components/ui/Button.tsx` | `components.ui.button` |
+  | `src/app/(tabs)/index.tsx`     | `tabs.index`           |
+
+- The **slug** is the text, lowercased, with `{{placeholders}}` removed and non-alphanumerics turned into `_`, trimmed at a word boundary to fit `maxKeyLength`.
+- Strings that produce an empty slug (pure punctuation or emoji) are skipped instead of generating broken keys like `components.backbutton.`.
+- The same string in two files gets two entries with different namespaces, so each site can be replaced independently.
+
+### File layout
+
+| `localeFileName` | Files                                                                |
+| ---------------- | -------------------------------------------------------------------- |
+| `null`           | `src/locales/en.json`, `src/locales/fr.json`                         |
+| `"translation"`  | `src/locales/en/translation.json`, `src/locales/fr/translation.json` |
+
+---
+
+## Working with several languages
 
 ```bash
-eai --debug          # verbose: files, namespaces, AST-oriented detail
-eai <cmd> --path .   # project root (default: cwd)
+# 1. Declare targets in eai.config.ts:  targetLanguages: ["fr", "es"]
+
+# 2. Create the files (copies of the default language, merged on re-runs)
+npx eai locales-generate
+
+# 3. Translate each file's values (translator, or paste into an LLM and paste back).
+#    Keep the keys and {{placeholders}} unchanged.
+
+# 4. Later, after adding code and re-scanning, align the targets
+npx eai scan
+npx eai locales-sync
 ```
+
+- `locales-generate` never destroys translations you already made; it merges.
+- `locales-sync` marks new values with `unsyncedPrefix`, so search your locale files for `[UNTRANSLATED]` to see what's pending.
+- To drop a language: `npx eai locales-delete <lang>`. Its files and `i18n.ts` entries are removed.
 
 ---
 
-## Known limitations
+## Examples
 
-- **Component detection uses naming conventions.**
-  PascalCase or default export. HOCs, render props, and factories may need a manual `useTranslation()`.
+Two apps were used to dogfood the CLI. Use them as reference configs and rewrite results—not as templates you must copy.
 
-- **Cross-file call sites are not updated.**
-  Exported helpers use `i18n.t` so other files don't need a new `t` argument. Local non-exported helpers only get same-file `fn(t)` patches.
+### Insist (real app)
 
-- **`eai replace` is not fully idempotent.**
-  Prefer `eai revert` before a second full `replace` on the same tree.
+[SiandjaRemy/insist · branch `feature/add-eai`](https://github.com/SiandjaRemy/insist/tree/feature/add-eai-live)
 
-- **No string deduplication across files.**
-  Same English in two screens → two keys. A shared `common` namespace is on the roadmap.
+Offline-first reminders app. Useful to inspect:
 
-- **Computed / runtime strings are not detected.**
+- Nested status maps and filter chips
+- Alerts with `` `...${task.title}` ``
+- Toast via `customDetectCalls` (`args: "object"`)
+- Module data (About, settings actions) with `i18n.t` and callback handlers
 
-  ```tsx
-  const msg = "Hello " + name;
-  <Text>{data.message}</Text>
-  <Text>{messages[index]}</Text>
-  ```
+Scan → replace → rescan was repeated until leftovers matched [Limitations](#limitations) or config gaps.
 
-- **Dates.** Prefer locale-aware libraries (`date-fns`, etc.) with `i18n.language`, not one key per formatted date.
+### default-expo-app (minimal)
+
+[SiandjaRemy/default-expo-app](https://github.com/SiandjaRemy/default-expo-app)
+
+Stock `create-expo-app` flow: small `eai.config.ts`, locale under `src/locales/`, `i18n.ts`, screens rewritten to `t()`. Best first read if you want the shortest path.
+
+### default-expo-app:
+
+> a fresh Expo template to which i added some more components/screens for more extensive tests
+
+**Repository:** [SiandjaRemy/default-expo-app](https://github.com/SiandjaRemy/default-expo-app)
+
+The stock `create-expo-app` template, run through the same flow. It's the smallest end-to-end example: a minimal config, a locale file such as `src/locales/en/translation.json`, an `i18n.ts`, and the template's screens rewritten to `t()`.
+
+<!-- confirm: which commit/branch shows the "before" state, and whether to mention the string counts. -->
+
+---
+
+## Limitations
+
+These are known and deliberate for now. Where there's a recommended workaround, it is listed.
+
+**Plural logic and nested ternaries inside templates**
+
+```ts
+`You have ${n} task${n > 1 ? "s" : ""}.`;
+```
+
+This is not extracted as one key, especially inside `useMemo`. Use i18next plurals by hand: `t("tasks.count", { count: n })` with `_one` / `_other` keys.
+
+**UI copy that only lives in an intermediate variable**
+
+```ts
+const scopeLabel =
+  scope === "daily" ? "your daily schedule" : "your weekly schedule";
+Toast.show({ text2: `... ${scopeLabel}` });
+```
+
+Strings assigned to the variable aren't recognized as Toast or Alert content. Put the final sentence in `t(...)` or in the Toast props, or use a separate key for each branch.
+
+**Record maps without allowlisted keys**
+
+```ts
+const EVENT_LABELS = { reminder: "Reminder" };
+```
+
+Values are skipped unless their key is in `objectLiteralIncludeKeys` (or you extend detection via config).
+
+**Dynamic and runtime-only strings**
+
+Server messages, computed keys, and pure formatters can't be reliably found by static analysis.
+
+**Module-level strings are translated when the module loads**
+
+`i18n.t("...")` outside a component runs once, at import time. If the language changes later, those values don't update unless the data is built lazily (inside a function or component). Prefer component-level usage for text that must react to language changes.
+
+**Cross-file callback signatures**
+
+Turning `() => void` into `(t) => void` can break typed configs, for example `action: handleExport`. Use `i18n.t` inside such handlers. Automatic handling of helpers referenced _as values_ is not finished yet (see [Roadmap](#roadmap)).
+
+**Leftover literals after `replace`**
+
+A re-scan after `replace` can still list strings. Most are one of the cases above, or a config gap you can close with `objectLiteralIncludeKeys`, `customDetectCalls` or `additionalTranslatablePropNames`.
+
+**RTL layout** is not mirrored by the package (see [Scope](#scope)).
+
+**Framework scope.** This is not a Next.js or Vite solution.
 
 ---
 
 ## Troubleshooting
 
-**No i18next instance / missing translations at runtime**
-Import `i18n` first in the entry file. Confirm `resources` and language codes in `i18n.ts`.
+**"Scan found strings but replace changed nothing."**
+Scan and replace use separate visitors, and a gap in one shows up as 0 replacements. Re-run `eai scan --only <the file>`, check whether the string falls under a [limitation](#limitations), and if not, open an issue with a minimal snippet.
 
-**UI shows keys like `home.welcome` instead of text**
-Flat keys + default i18next separators → set `keySeparator: false` and `nsSeparator: false`. Confirm the key exists in the loaded JSON.
+**A string I wanted is not extracted.**
+Check, in this order: is the prop name allowlisted (`additionalTranslatablePropNames`)? Is the object key in `objectLiteralIncludeKeys`? Is it a single word that the blocklist filters (`allowSingleWords`)? Is the call registered in `customDetectCalls`?
 
-**Alert body shows a key but JSX is fine**
-Often `err.message` from an API throw that stored an unresolved key. Fix `i18n.t` at the throw site or translate from an error code in the UI.
+**A string I did _not_ want is extracted.**
+Add the file or folder to `exclude`, or add the word to `blockSingleWords`. Identifier-like tokens are skipped by default.
 
-**`Property 't' doesn't exist`**
-Hook not injected (naming / HOC). Add `const { t } = useTranslation()` manually.
+**`--fresh` cannot be used with `--only`.**
+By design. A partial scan would drop every key outside the scanned paths.
 
-**Strings not detected**
-`eai scan --debug`. Check `.gitignore` and `exclude`. For setters, ensure `detectStateSetters` is on; for toasts, use `customDetectCalls`.
+**My `i18n.ts` customizations are gone.**
+They shouldn't be: locale commands edit it surgically. It's rewritten in full only if it didn't exist. Check the version you're running.
 
-**Wrong import path for `i18n`**
-Use the path printed by `init` / `scan`.
+**`TypeError: ... .hook is not a function` (or other Commander errors).**
+A host app hoisted an older `commander`. The package bundles/pins its own, so update to the latest version, then check `npm ls commander`.
+
+**Duplicate or mismatched `i18next` / `react-i18next`.**
+Install both directly in your app and dedupe with `npm ls i18next react-i18next`.
+
+**Where are my originals?**
+Next to each rewritten file as `*.i18nbak`. Run `eai revert` to restore them.
 
 ---
 
 ## Roadmap
 
-- Translation API helper (`eai translate …`)
-- Shared `common` namespace for repeated strings
-- Optional per-screen locale files
-- Cross-file call-site patching
-- Richer pluralization helpers
-- `@autoi18n/next`, `@autoi18n/react` (Vite), etc.
+Planned or under consideration, **not** part of the current release:
+
+- Automatic plural-template extraction
+- Opt-in aggressive extraction of `const x = a ? "…" : "…"`
+- Scan strategies: conservative / balanced / aggressive
+- A prune-only command to remove unused keys without the full `--fresh` rebuild
+- Grouping backups into a dedicated directory instead of sidecar `.i18nbak` files
+- `eai translate`: machine translation via an API key
+- Common namespace / mirrored locale structure
+- Separate packages for other frameworks (for example Next.js)
 
 ---
+
+## Contributing
+
+Issues and pull requests are welcome. When reporting a missed string, a minimal code snippet plus your `eai.config.ts` is the fastest way to get it fixed.
+
+Issues and PRs: [autoi18n-expo](https://github.com/SiandjaRemy/autoi18n-expo).
+
 
 ## License
 

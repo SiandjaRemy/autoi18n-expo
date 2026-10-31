@@ -195,6 +195,7 @@ type I18nStrategy = "t-component" | "t-helper" | "i18n";
 function resolveI18nStrategy(
   nodePath: any,
   kind: "jsx" | "string" = "jsx",
+  helpersUsedAsValues?: Set<string>,
 ): I18nStrategy {
   if (isNestedInsideComponent(nodePath)) return "t-component";
 
@@ -203,6 +204,14 @@ function resolveI18nStrategy(
 
   const fnPath = getEnclosingFunctionPath(nodePath);
   if (!fnPath) return "i18n";
+
+  // export function / export const foo = () => ...
+  if (isExportedFunction(fnPath)) return "i18n";
+
+  const name = getHelperName(fnPath.node, fnPath.parent?.node);
+  if (name && helpersUsedAsValues?.has(name)) {
+    return "i18n";
+  }
 
   if (
     !isExportedFunction(fnPath) &&
@@ -276,6 +285,61 @@ function buildUseTranslationCall(): any {
       b.callExpression(b.identifier("useTranslation"), []),
     ),
   ]);
+}
+
+/**
+ * Names referenced as values (not as the callee of a call).
+ * e.g. action: handleExport  →  handleExport must not gain (t: TFunction)
+ */
+function collectHelpersUsedAsValues(ast: any): Set<string> {
+  const usedAsValue = new Set<string>();
+
+  visit(ast, {
+    visitIdentifier(path) {
+      const name = path.node.name;
+      if (!name || name === "t" || name === "i18n") return false;
+
+      const parent = path.parent?.node;
+      if (!parent) return false;
+
+      // handleExport() — real call; OK for optional t injection
+      if (parent.type === "CallExpression" && parent.callee === path.node) {
+        return false;
+      }
+
+      if (
+        parent.type === "ImportSpecifier" ||
+        parent.type === "ImportDefaultSpecifier" ||
+        parent.type === "ExportSpecifier"
+      ) {
+        return false;
+      }
+
+      // { handleExport: ... } as key
+      if (
+        (parent.type === "ObjectProperty" || parent.type === "Property") &&
+        parent.key === path.node &&
+        !parent.computed
+      ) {
+        return false;
+      }
+
+      // Property access: obj.handleExport — skip
+      if (
+        parent.type === "MemberExpression" &&
+        parent.property === path.node &&
+        !parent.computed
+      ) {
+        return false;
+      }
+
+      // action: handleExport, arr = [handleExport], etc.
+      usedAsValue.add(name);
+      return false;
+    },
+  });
+
+  return usedAsValue;
 }
 
 // ─── Lookup ─────────────────────────────────────────────────────────────────
@@ -871,6 +935,17 @@ export function transformFile(
     return { filePath, modified: false, replacements: 0 };
   }
 
+  const helpersUsedAsValues = collectHelpersUsedAsValues(ast);
+
+  function maybeRegisterHelperNeedingT(nodePath: any, strategy: I18nStrategy) {
+    if (strategy !== "t-helper") return;
+    const fnPath = getEnclosingFunctionPath(nodePath);
+    if (!fnPath) return;
+    const name = getHelperName(fnPath.node, fnPath.parent?.node);
+    if (!name || helpersUsedAsValues.has(name)) return;
+    helpersNeedingT.set(name, fnPath.node);
+  }
+
   let totalReplacements = 0;
   let fileNeedsI18nImport = false;
   const componentBlocks = new Set<any>();
@@ -910,7 +985,11 @@ export function transformFile(
         return !originalValue.slice(contentEnd + 1).includes("\n");
       })();
 
-      const strategy = resolveI18nStrategy(nodePath);
+      const strategy = resolveI18nStrategy(
+        nodePath,
+        "jsx",
+        helpersUsedAsValues,
+      );
       if (strategy === "i18n") fileNeedsI18nImport = true;
 
       const call =
@@ -919,13 +998,7 @@ export function transformFile(
           : buildTCall(extracted.fullKey);
 
       // if strategy === "t-helper", register enclosing function for t injection
-      if (strategy === "t-helper") {
-        const fnPath = getEnclosingFunctionPath(nodePath);
-        if (fnPath) {
-          const name = getHelperName(fnPath.node, fnPath.parent?.node);
-          if (name) helpersNeedingT.set(name, fnPath.node);
-        }
-      }
+      maybeRegisterHelperNeedingT(nodePath, strategy);
 
       if (!hasLeadingSpace && !hasTrailingSpace) {
         nodePath.replace(buildJSXExpression(call));
@@ -956,16 +1029,14 @@ export function transformFile(
         return this.traverse(nodePath);
       }
 
-      const strategy = resolveI18nStrategy(nodePath);
+      const strategy = resolveI18nStrategy(
+        nodePath,
+        "jsx",
+        helpersUsedAsValues,
+      );
       const useI18n = strategy === "i18n";
 
-      if (strategy === "t-helper") {
-        const fnPath = getEnclosingFunctionPath(nodePath);
-        if (fnPath) {
-          const name = getHelperName(fnPath.node, fnPath.parent?.node);
-          if (name) helpersNeedingT.set(name, fnPath.node);
-        }
-      }
+      maybeRegisterHelperNeedingT(nodePath, strategy);
 
       const replaceOpts = { useI18nInstance: useI18n, byText };
 
@@ -1022,16 +1093,14 @@ export function transformFile(
             byText,
           );
           if (extracted) {
-            const strategy = resolveI18nStrategy(nodePath);
+            const strategy = resolveI18nStrategy(
+              nodePath,
+              "jsx",
+              helpersUsedAsValues,
+            );
             if (strategy === "i18n") fileNeedsI18nImport = true;
 
-            if (strategy === "t-helper") {
-              const fnPath = getEnclosingFunctionPath(nodePath);
-              if (fnPath) {
-                const name = getHelperName(fnPath.node, fnPath.parent?.node);
-                if (name) helpersNeedingT.set(name, fnPath.node);
-              }
-            }
+            maybeRegisterHelperNeedingT(nodePath, strategy);
 
             const call =
               strategy === "i18n"
@@ -1057,16 +1126,14 @@ export function transformFile(
           return;
         }
 
-        const strategy = resolveI18nStrategy(nodePath);
+        const strategy = resolveI18nStrategy(
+          nodePath,
+          "jsx",
+          helpersUsedAsValues,
+        );
         const useI18n = strategy === "i18n";
 
-        if (strategy === "t-helper") {
-          const fnPath = getEnclosingFunctionPath(nodePath);
-          if (fnPath) {
-            const name = getHelperName(fnPath.node, fnPath.parent?.node);
-            if (name) helpersNeedingT.set(name, fnPath.node);
-          }
-        }
+        maybeRegisterHelperNeedingT(nodePath, strategy);
 
         // Sub-case B1: non-object expression on a known translatable prop
         // e.g. accessibilityLabel={`Filter by ${label}`}
@@ -1128,16 +1195,14 @@ export function transformFile(
       }
 
       if (calleeName === "Alert.alert") {
-        const strategy = resolveI18nStrategy(nodePath, "jsx");
+        const strategy = resolveI18nStrategy(
+          nodePath,
+          "jsx",
+          helpersUsedAsValues,
+        );
         const useI18n = strategy === "i18n";
 
-        if (strategy === "t-helper") {
-          const fnPath = getEnclosingFunctionPath(nodePath);
-          if (fnPath) {
-            const name = getHelperName(fnPath.node, fnPath.parent?.node);
-            if (name) helpersNeedingT.set(name, fnPath.node);
-          }
-        }
+        maybeRegisterHelperNeedingT(nodePath, strategy);
 
         args.forEach((arg: any, index: number) => {
           if (!arg || arg.type === "SpreadElement") return;
